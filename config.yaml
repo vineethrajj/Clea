@@ -40,6 +40,16 @@ captions:                  # Phase 2 — word-by-word highlight style
   margin_v: 460            # px above bottom edge — clears the Reels UI zone
   max_words_per_line: 4
 
+notes:                     # Phase 3 — informational note-card overlays
+  max_notes: 4             # 2-4 key factual sentences from the transcript
+  display_seconds: 3.5
+  font_size: 52
+  text_color: "#FFFFFF"
+  bg_color: "#101828"      # card background (BorderStyle=3 box)
+  bg_alpha: 0x50           # 0x00 opaque .. 0xFF invisible
+  margin_top: 300          # px from top edge
+  use_llm: true            # compress via local Ollama when running; heuristic otherwise
+
 audio_mix:
   music_volume: 1.0
   music_volume_with_voice: 0.25  # duck music under speech when --keep-voice

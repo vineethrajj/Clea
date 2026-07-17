@@ -72,7 +72,7 @@ def cmd_edit(args: argparse.Namespace) -> int:
     print(f"      {grid.tempo:.1f} BPM, {len(grid.beat_times)} beats over {grid.duration:.1f}s")
 
     words_by_clip = None
-    if args.captions:
+    if args.captions or args.notes:
         # GPU stages run sequentially: whisper finishes and frees its model
         # (see transcribe_clips) before the NVENC render starts.
         print(f"[2b]  Transcribing {len(clip_paths)} clip(s) with faster-whisper...")
@@ -114,15 +114,31 @@ def cmd_edit(args: argparse.Namespace) -> int:
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
 
     ass_path = None
-    if args.captions and words_by_clip:
+    if words_by_clip:
         from .captions import remap_words, write_ass
-        timeline_words = remap_words(plan, words_by_clip)
-        if timeline_words:
+
+        timeline_words = []
+        if args.captions:
+            timeline_words = remap_words(plan, words_by_clip)
+            if not timeline_words:
+                print("      captions: no transcribed words landed in the chosen segments")
+
+        notes = []
+        if args.notes:
+            from .notes import build_notes
+            notes = build_notes(words_by_clip, plan, cfg,
+                                max_notes=cfg.notes["max_notes"],
+                                use_llm=cfg.notes["use_llm"])
+            for n in notes:
+                print(f"      note {n.start:5.1f}-{n.end:5.1f}s: {n.text}")
+            if not notes:
+                print("      notes: no usable sentences found in transcript")
+
+        if timeline_words or notes:
             ass_path = str(Path(out_path).with_suffix(".ass"))
-            write_ass(timeline_words, cfg, ass_path)
-            print(f"      captions: {len(timeline_words)} words on timeline -> {ass_path}")
-        else:
-            print("      captions: no transcribed words landed in the chosen segments")
+            write_ass(timeline_words, cfg, ass_path, notes=notes)
+            print(f"      overlay track: {len(timeline_words)} caption words, "
+                  f"{len(notes)} note cards -> {ass_path}")
 
     print(f"[5/5] Rendering {cfg.video['width']}x{cfg.video['height']} via {encoder}"
           + (" + captions" if ass_path else "")
@@ -173,6 +189,8 @@ def main(argv: list[str] | None = None) -> int:
     p_edit.add_argument("--no-xfade", action="store_true", help="hard cuts only")
     p_edit.add_argument("--captions", action="store_true",
                         help="transcribe clip speech and burn in word-highlight captions")
+    p_edit.add_argument("--notes", action="store_true",
+                        help="overlay 2-4 key factual note cards from the transcript")
     p_edit.add_argument("--keep-voice", action="store_true",
                         help="keep source clip audio audible, duck the music under it")
     p_edit.add_argument("--whisper-model", default=None,

@@ -77,10 +77,13 @@ def _clean(text: str) -> str:
     return text.replace("{", "(").replace("}", ")")
 
 
-def build_ass(words: list[Word], cfg: Config) -> str:
+def build_ass(words: list[Word], cfg: Config, notes: list | None = None) -> str:
     ccfg = cfg.captions
+    ncfg = cfg.notes
     w, h = cfg.video["width"], cfg.video["height"]
     highlight = _hex_to_ass(ccfg["highlight_color"])
+    note_bg = _hex_to_ass(ncfg["bg_color"]).replace("&H00", f"&H{ncfg['bg_alpha']:02X}")
+    note_text = _hex_to_ass(ncfg["text_color"])
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {w}
@@ -91,11 +94,17 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Caption,{ccfg["font"]},{ccfg["font_size"]},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{ccfg["outline"]},2,2,60,60,{ccfg["margin_v"]},1
+Style: Note,{ccfg["font"]},{ncfg["font_size"]},{note_text},{note_text},{note_bg},{note_bg},-1,0,0,0,100,100,0,0,3,14,0,8,90,90,{ncfg["margin_top"]},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     events: list[str] = []
+    for note in notes or []:
+        events.append(
+            f"Dialogue: 1,{_ass_time(note.start)},{_ass_time(note.end)},Note,,0,0,0,,"
+            r"{\fad(250,250)}" + _clean(note.text)
+        )
     for group in group_words(words, ccfg["max_words_per_line"]):
         for i, word in enumerate(group):
             start = word.start
@@ -120,8 +129,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return header + "\n".join(events) + "\n"
 
 
-def write_ass(words: list[Word], cfg: Config, out_path: str | Path) -> Path:
+def write_ass(words: list[Word], cfg: Config, out_path: str | Path,
+              notes: list | None = None) -> Path:
     path = Path(out_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(build_ass(words, cfg), encoding="utf-8")
+    path.write_text(build_ass(words, cfg, notes=notes), encoding="utf-8")
     return path
