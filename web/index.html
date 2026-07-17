@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Clea — auto-editor</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161c26; --panel2: #1d2533; --line: #2a3446;
+    --text: #e8edf4; --dim: #8b98ab; --accent: #ffd400; --accent-text: #14161a;
+    --ok: #3fd68f; --off: #5a6678; --err: #ff6b6b; --radius: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh; padding-bottom: 48px;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 16px; }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 0 4px; }
+  h1 { font-size: 26px; letter-spacing: .5px; }
+  h1 span { color: var(--accent); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    font-size: 12px; padding: 5px 10px; border-radius: 999px;
+    background: var(--panel2); color: var(--off); border: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  .chip.on { color: var(--ok); border-color: var(--ok); }
+  .tabs { display: flex; gap: 8px; margin: 16px 0; }
+  .tab {
+    flex: 1; min-height: 48px; border-radius: var(--radius); border: 1px solid var(--line);
+    background: var(--panel); color: var(--dim); font-size: 16px; font-weight: 600;
+    cursor: pointer;
+  }
+  .tab.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
+  .card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin-bottom: 12px; }
+  .drop {
+    border: 2px dashed var(--line); border-radius: var(--radius); padding: 22px 14px;
+    text-align: center; color: var(--dim); cursor: pointer; min-height: 64px;
+  }
+  .drop.hover { border-color: var(--accent); color: var(--text); }
+  .filelist { margin-top: 10px; font-size: 14px; color: var(--dim); }
+  .filelist li { list-style: none; padding: 3px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  label.row {
+    display: flex; align-items: center; justify-content: space-between;
+    min-height: 48px; padding: 4px 2px; gap: 12px; cursor: pointer;
+  }
+  input[type="checkbox"] { width: 26px; height: 26px; accent-color: var(--accent); flex: none; }
+  input[type="range"] { width: 100%; accent-color: var(--accent); height: 34px; }
+  input[type="text"], select, textarea {
+    width: 100%; min-height: 48px; padding: 10px 14px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--panel2); color: var(--text); font-size: 16px;
+  }
+  .btn {
+    display: block; width: 100%; min-height: 54px; border: 0; border-radius: var(--radius);
+    background: var(--accent); color: var(--accent-text); font-size: 18px; font-weight: 700;
+    cursor: pointer; margin-top: 6px;
+  }
+  .btn:disabled { opacity: .45; }
+  .btn.ghost { background: var(--panel2); color: var(--text); border: 1px solid var(--line); font-weight: 600; }
+  .status { font-size: 15px; color: var(--dim); margin-top: 12px; min-height: 22px; }
+  .status.err { color: var(--err); }
+  .bar { height: 6px; border-radius: 3px; background: var(--panel2); overflow: hidden; margin-top: 8px; display: none; }
+  .bar > div { height: 100%; width: 30%; background: var(--accent); border-radius: 3px; animation: slide 1.2s ease-in-out infinite; }
+  @keyframes slide { 0% {margin-left:-30%} 100% {margin-left:100%} }
+  video { width: 100%; max-height: 68vh; border-radius: var(--radius); background: #000; margin-top: 12px; display: none; }
+  .result-block { background: var(--panel2); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+  .result-block .rb-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .result-block h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); }
+  .result-block p { white-space: pre-wrap; font-size: 15px; }
+  .copy { min-width: 64px; min-height: 36px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--dim); font-size: 13px; cursor: pointer; }
+  .copy.done { color: var(--ok); border-color: var(--ok); }
+  .hidden { display: none !important; }
+  .muted { color: var(--dim); font-size: 13px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Clea<span>.</span></h1>
+    <div class="chips" id="chips">
+      <span class="chip" id="chip-nvenc">NVENC …</span>
+      <span class="chip" id="chip-whisper">Whisper …</span>
+      <span class="chip" id="chip-ollama">Ollama …</span>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" id="tab-edit">Auto-Edit</button>
+    <button class="tab" id="tab-ideas">Content Ideas</button>
+  </div>
+
+  <!-- ===================== EDIT TAB ===================== -->
+  <section id="pane-edit">
+    <div class="card">
+      <h2>1 · Clips</h2>
+      <div class="drop" id="drop-clips">Tap to choose video clips<br><small>or drag &amp; drop</small></div>
+      <input type="file" id="in-clips" accept="video/*" multiple class="hidden">
+      <ul class="filelist" id="list-clips"></ul>
+    </div>
+
+    <div class="card">
+      <h2>2 · Music</h2>
+      <div class="drop" id="drop-audio">Tap to choose a music track</div>
+      <input type="file" id="in-audio" accept="audio/*" class="hidden">
+      <ul class="filelist" id="list-audio"></ul>
+    </div>
+
+    <div class="card">
+      <h2>3 · Options</h2>
+      <label class="row">Captions (Whisper)<input type="checkbox" id="opt-captions"></label>
+      <label class="row">Info note cards<input type="checkbox" id="opt-notes"></label>
+      <label class="row">Keep clip voices audible<input type="checkbox" id="opt-voice"></label>
+      <label class="row">Crossfades on weak beats<input type="checkbox" id="opt-xfade" checked></label>
+      <label class="row" for="opt-duration">Length: <b id="duration-label">20s</b></label>
+      <input type="range" id="opt-duration" min="15" max="30" value="20" step="1">
+    </div>
+
+    <button class="btn" id="btn-go" disabled>Generate reel</button>
+    <div class="bar" id="bar"><div></div></div>
+    <div class="status" id="edit-status">Add clips and a music track to start.</div>
+    <video id="preview" controls playsinline></video>
+    <a id="download" class="hidden"><button class="btn ghost">Download MP4</button></a>
+  </section>
+
+  <!-- ===================== IDEAS TAB ===================== -->
+  <section id="pane-ideas" class="hidden">
+    <div class="card">
+      <h2>Topic</h2>
+      <input type="text" id="gen-topic" placeholder="e.g. ultrasonic scaling, database normalization"
+             autocomplete="off">
+      <div style="height:10px"></div>
+      <select id="gen-type">
+        <option value="dental">Dental (compliance-safe)</option>
+        <option value="educational-other">Educational / other</option>
+      </select>
+      <button class="btn" id="btn-gen" style="margin-top:14px">Generate content</button>
+      <div class="status" id="gen-status"></div>
+    </div>
+    <div id="gen-results"></div>
+  </section>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+/* ---------- status chips ---------- */
+async function refreshStatus() {
+  try {
+    const s = await (await fetch("/api/status")).json();
+    setChip("chip-nvenc", s.nvenc, s.nvenc ? "NVENC ⚡" : "CPU encode");
+    setChip("chip-whisper", s.cuda_whisper, s.cuda_whisper ? "Whisper GPU" : "Whisper CPU");
+    setChip("chip-ollama", s.ollama, s.ollama ? `Ollama · ${s.llm_model}` : "Ollama off");
+  } catch { /* server restarting */ }
+}
+function setChip(id, on, text) {
+  const el = $(id); el.textContent = text; el.classList.toggle("on", !!on);
+}
+refreshStatus(); setInterval(refreshStatus, 15000);
+
+/* ---------- tabs ---------- */
+function showTab(edit) {
+  $("pane-edit").classList.toggle("hidden", !edit);
+  $("pane-ideas").classList.toggle("hidden", edit);
+  $("tab-edit").classList.toggle("active", edit);
+  $("tab-ideas").classList.toggle("active", !edit);
+}
+$("tab-edit").onclick = () => showTab(true);
+$("tab-ideas").onclick = () => showTab(false);
+
+/* ---------- file pickers ---------- */
+let clipFiles = [], audioFile = null;
+function bindPicker(dropId, inputId, listId, multiple, onSet) {
+  const drop = $(dropId), input = $(inputId);
+  drop.onclick = () => input.click();
+  input.onchange = () => onSet([...input.files]);
+  ["dragover", "dragenter"].forEach(ev => drop.addEventListener(ev, e => {
+    e.preventDefault(); drop.classList.add("hover");
+  }));
+  ["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => {
+    e.preventDefault(); drop.classList.remove("hover");
+    if (ev === "drop") onSet(multiple ? [...e.dataTransfer.files] : [e.dataTransfer.files[0]]);
+  }));
+}
+bindPicker("drop-clips", "in-clips", "list-clips", true, files => {
+  clipFiles = files.filter(f => f && f.type.startsWith("video"));
+  $("list-clips").innerHTML = clipFiles.map(f => `<li>🎬 ${f.name}</li>`).join("");
+  updateGo();
+});
+bindPicker("drop-audio", "in-audio", "list-audio", false, files => {
+  audioFile = files[0] || null;
+  $("list-audio").innerHTML = audioFile ? `<li>🎵 ${audioFile.name}</li>` : "";
+  updateGo();
+});
+function updateGo() { $("btn-go").disabled = !(clipFiles.length && audioFile); }
+
+$("opt-duration").oninput = () =>
+  $("duration-label").textContent = $("opt-duration").value + "s";
+
+/* ---------- edit job ---------- */
+let polling = null;
+$("btn-go").onclick = async () => {
+  const fd = new FormData();
+  clipFiles.forEach(f => fd.append("clips", f));
+  fd.append("audio", audioFile);
+  fd.append("duration", $("opt-duration").value);
+  fd.append("captions", $("opt-captions").checked);
+  fd.append("notes", $("opt-notes").checked);
+  fd.append("keep_voice", $("opt-voice").checked);
+  fd.append("no_xfade", !$("opt-xfade").checked);
+
+  $("btn-go").disabled = true;
+  $("preview").style.display = "none";
+  $("download").classList.add("hidden");
+  setEditStatus("Uploading…");
+  $("bar").style.display = "block";
+  try {
+    const resp = await fetch("/api/edit", { method: "POST", body: fd });
+    if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
+    const { job_id } = await resp.json();
+    polling = setInterval(() => poll(job_id), 1200);
+  } catch (e) { fail(e.message); }
+};
+
+async function poll(jobId) {
+  try {
+    const job = await (await fetch(`/api/jobs/${jobId}`)).json();
+    if (job.state === "done") {
+      clearInterval(polling);
+      $("bar").style.display = "none";
+      setEditStatus(`Done — ${job.video_duration.toFixed(1)}s, ${job.n_cuts} cuts, ` +
+        `${job.encoder}${job.n_caption_words ? `, ${job.n_caption_words} caption words` : ""}` +
+        ` (rendered in ${job.render_seconds}s)`);
+      const url = `/api/jobs/${jobId}/video`;
+      const v = $("preview"); v.src = url; v.style.display = "block";
+      const dl = $("download"); dl.href = url; dl.download = "clea_reel.mp4";
+      dl.classList.remove("hidden");
+      $("btn-go").disabled = false;
+    } else if (job.state === "error") {
+      clearInterval(polling); fail(job.message);
+    } else {
+      setEditStatus(`${job.state}… ${job.message || ""}`);
+    }
+  } catch { /* transient */ }
+}
+function setEditStatus(msg) { const el = $("edit-status"); el.textContent = msg; el.classList.remove("err"); }
+function fail(msg) {
+  $("bar").style.display = "none";
+  const el = $("edit-status"); el.textContent = "Failed: " + msg; el.classList.add("err");
+  $("btn-go").disabled = false;
+}
+
+/* ---------- content generator ---------- */
+$("btn-gen").onclick = async () => {
+  const topic = $("gen-topic").value.trim();
+  if (!topic) { $("gen-status").textContent = "Enter a topic first."; return; }
+  $("btn-gen").disabled = true;
+  $("gen-status").textContent = "Thinking (local LLM)…";
+  $("gen-results").innerHTML = "";
+  try {
+    const resp = await fetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic, content_type: $("gen-type").value }),
+    });
+    if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
+    renderPack(await resp.json());
+    $("gen-status").textContent = "";
+  } catch (e) {
+    $("gen-status").textContent = "Failed: " + e.message;
+  } finally { $("btn-gen").disabled = false; }
+};
+
+function block(title, text) {
+  const div = document.createElement("div");
+  div.className = "result-block";
+  div.innerHTML = `<div class="rb-head"><h3></h3><button class="copy">Copy</button></div><p></p>`;
+  div.querySelector("h3").textContent = title;
+  div.querySelector("p").textContent = text;
+  const btn = div.querySelector(".copy");
+  btn.onclick = async () => {
+    await navigator.clipboard.writeText(text);
+    btn.textContent = "Copied"; btn.classList.add("done");
+    setTimeout(() => { btn.textContent = "Copy"; btn.classList.remove("done"); }, 1600);
+  };
+  return div;
+}
+
+function renderPack(p) {
+  const out = $("gen-results");
+  const card = document.createElement("div");
+  card.className = "card";
+  card.appendChild(block("Hook", p.hook));
+  const script = ["hook", "problem", "solution", "cta"]
+    .filter(k => p.script[k]).map(k => `${k.toUpperCase()}: ${p.script[k]}`).join("\n\n");
+  card.appendChild(block("Script", script));
+  card.appendChild(block("Caption", p.caption));
+  card.appendChild(block("Hashtags", (p.hashtags || []).join(" ")));
+  if (p.compliance_warnings && p.compliance_warnings.length) {
+    const warn = document.createElement("p");
+    warn.className = "muted";
+    warn.style.color = "var(--err)";
+    warn.textContent = "⚠ Review before posting — flagged words: " + p.compliance_warnings.join(", ");
+    card.appendChild(warn);
+  }
+  out.appendChild(card);
+}
+</script>
+</body>
+</html>

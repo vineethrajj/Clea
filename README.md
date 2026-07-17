@@ -17,9 +17,9 @@ CPU fallback, so the same code runs (slower) on any machine.
 |---|---|---|
 | 1 | Beat-sync auto-cut CLI (librosa beats + OpenCV scoring + NVENC export) | ✅ working |
 | 2 | Burned-in captions (faster-whisper "medium" on CUDA, ASS word-highlight) | ✅ working |
-| 3 | Informational note-card overlays from transcript | ⬜ |
-| 4 | AI content generator (Ollama qwen2.5:7b, dental compliance guardrail) | ⬜ |
-| 5 | Mobile-friendly web UI (FastAPI + vanilla JS, phone over LAN) | ⬜ |
+| 3 | Informational note-card overlays from transcript | ✅ working |
+| 4 | AI content generator (Ollama qwen2.5:7b, dental compliance guardrail) | ✅ working |
+| 5 | Mobile-friendly web UI (FastAPI + vanilla JS, phone over LAN) | ✅ working |
 
 ## Setup (on the ROG laptop)
 
@@ -102,6 +102,53 @@ python -m clea transcribe --clips myclips
    boundary still lands exactly on its beat.
 5. One ffmpeg pass renders 1080x1920@30 (scale-to-cover + centre crop) with
    `h264_nvenc` when available, `libx264` otherwise, music trimmed and faded.
+
+## Phase 3 usage — note-card overlays
+
+```bash
+python -m clea edit --clips myclips --audio song.mp3 -o output/reel.mp4 \
+    --captions --notes --keep-voice
+```
+
+`--notes` picks 2–4 key factual sentences from the transcript (numbers,
+informational verbs, sensible length), compresses them via local Ollama when
+it's running (plain trimming otherwise), and overlays them as boxed cards at
+the top of the frame, timed to when each sentence is spoken. Style under
+`notes:` in `config.yaml`.
+
+## Phase 4 usage — AI content generator
+
+```bash
+ollama pull qwen2.5:7b   # once
+
+python -m clea generate --topic "ultrasonic scaling" --type dental
+python -m clea generate --topic "database normalization" --type educational-other
+```
+
+Output: hook line, 4-part script (hook / problem / solution / CTA), caption,
+5–8 hashtags. The **dental** type enforces the compliance guardrail in the
+system prompt (no "instant/painless/best/cure/guaranteed", soft "in most
+cases" framing, "consult your dentist") *and* post-checks the output against
+a banned-word list, regenerating once on violation. `--json` for raw JSON.
+
+## Phase 5 usage — web UI
+
+```bash
+python -m clea serve            # http://localhost:8000
+```
+
+Startup prints your LAN address (e.g. `http://192.168.1.23:8000`) — open it
+on your phone over the same wifi. One page, two tabs:
+
+- **Auto-Edit** — drag-drop (or tap-pick) clips + music, toggle captions /
+  note cards / keep-voice / crossfades, 15–30s length slider, live progress,
+  inline 9:16 preview, download button.
+- **Content Ideas** — topic + type in, hook/script/caption/hashtags out,
+  copy-to-clipboard per block.
+
+Status chips in the header show at a glance whether NVENC, Whisper-GPU and
+Ollama are active or something fell back to CPU. Jobs and LLM calls share
+one lock, so GPU stages always run sequentially (8GB VRAM rule).
 
 ## Configuration
 

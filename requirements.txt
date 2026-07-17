@@ -9,10 +9,10 @@ PyYAML
 faster-whisper>=1.0          # CUDA build of ctranslate2 is pulled in automatically;
                              # needs NVIDIA driver + cuBLAS/cuDNN for GPU mode.
 
-# ---- Phase 4+: AI content generator ----
-# requests                   # talks to local Ollama HTTP API
+# ---- Phase 4: AI content generator ----
+# (no extra deps — talks to local Ollama via stdlib urllib)
 
 # ---- Phase 5: web UI ----
-# fastapi
-# uvicorn[standard]
-# python-multipart
+fastapi
+uvicorn[standard]
+python-multipart
