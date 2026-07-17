@@ -25,12 +25,47 @@ VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
 @dataclass
 class EditOptions:
     duration: float | None = None
-    captions: bool = False
-    notes: bool = False
-    keep_voice: bool = False
+    style: str = "informational"     # key into config styles: presets
+    captions: bool | None = None     # None -> style default
+    notes: bool | None = None
+    keep_voice: bool | None = None
     no_xfade: bool = False
+    hook_text: str | None = None     # big opening title burned over the reel
     seed: int = 42
     whisper_model: str | None = None
+
+
+@dataclass
+class ResolvedStyle:
+    pacing: dict
+    captions: bool
+    notes: bool
+    keep_voice: bool
+    ordering: str
+    transitions: str
+    punch_in: bool
+
+
+def resolve_style(cfg: Config, opts: EditOptions) -> ResolvedStyle:
+    styles = dict(cfg.get("styles") or {})
+    if opts.style not in styles:
+        raise ValueError(f"unknown style '{opts.style}' — available: {', '.join(styles)}")
+    style = styles[opts.style]
+    pacing = {**dict(cfg.pacing), **dict(style.get("pacing") or {})}
+    defaults = dict(style.get("defaults") or {})
+
+    def pick(explicit: bool | None, key: str) -> bool:
+        return bool(defaults.get(key, False)) if explicit is None else explicit
+
+    return ResolvedStyle(
+        pacing=pacing,
+        captions=pick(opts.captions, "captions"),
+        notes=pick(opts.notes, "notes"),
+        keep_voice=pick(opts.keep_voice, "keep_voice"),
+        ordering=str(style.get("ordering", "hook_first")),
+        transitions=str(style.get("transitions", "standard")),
+        punch_in=bool(style.get("punch_in", False)),
+    )
 
 
 @dataclass
@@ -68,6 +103,8 @@ def run_edit(
     if not clip_paths:
         raise ValueError("no video clips provided")
 
+    style = resolve_style(cfg, opts)
+
     if hw is None:
         progress("probe", "checking hardware")
         hw = probe(cfg.llm["ollama_url"])
@@ -80,7 +117,7 @@ def run_edit(
     progress("beats", f"{grid.tempo:.1f} BPM, {len(grid.beat_times)} beats")
 
     words_by_clip = None
-    if opts.captions or opts.notes:
+    if style.captions or style.notes:
         # Sequential GPU stage 1: whisper loads, runs, and frees its model
         # inside transcribe_clips before anything else touches the GPU.
         progress("transcribe", f"transcribing {len(clip_paths)} clip(s)")
@@ -99,25 +136,29 @@ def run_edit(
     target = max(cfg.video["min_duration"], min(cfg.video["max_duration"], target))
     target = min(target, grid.duration)
 
-    progress("assemble", f"assembling ~{target:.0f}s beat-cut sequence")
-    slots = build_slots(grid, target, dict(cfg.pacing))
+    progress("assemble",
+             f"assembling ~{target:.0f}s '{opts.style}' sequence ({style.ordering})")
+    slots = build_slots(grid, target, style.pacing, transitions=style.transitions)
     if opts.no_xfade:
         for s in slots:
             if s.transition_out == "xfade":
                 s.transition_out, s.fade_dur = "cut", 0.0
-    plan = build_edl(analyses, slots, dict(cfg.scoring), seed=opts.seed)
+    plan = build_edl(analyses, slots, dict(cfg.scoring), seed=opts.seed,
+                     ordering=style.ordering)
 
     ass_path = None
     n_caption_words = 0
     note_texts: list[str] = []
-    if words_by_clip:
+    if words_by_clip or opts.hook_text:
         from .captions import remap_words, write_ass
 
-        timeline_words = remap_words(plan, words_by_clip) if opts.captions else []
+        timeline_words = []
+        if style.captions and words_by_clip:
+            timeline_words = remap_words(plan, words_by_clip)
         n_caption_words = len(timeline_words)
 
         notes = []
-        if opts.notes:
+        if style.notes and words_by_clip:
             # Sequential GPU stage 2 (optional LLM call inside).
             from .notes import build_notes
             notes = build_notes(words_by_clip, plan, cfg,
@@ -125,15 +166,18 @@ def run_edit(
                                 use_llm=cfg.notes["use_llm"])
             note_texts = [n.text for n in notes]
 
-        if timeline_words or notes:
+        if timeline_words or notes or opts.hook_text:
             ass_path = str(Path(out_path).with_suffix(".ass"))
-            write_ass(timeline_words, cfg, ass_path, notes=notes)
+            write_ass(timeline_words, cfg, ass_path, notes=notes,
+                      hook_text=opts.hook_text)
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-    progress("render", f"rendering {cfg.video['width']}x{cfg.video['height']} via {encoder}")
+    progress("render", f"rendering {cfg.video['width']}x{cfg.video['height']} via {encoder}"
+             + (" (punch-in)" if style.punch_in else ""))
     t0 = time.time()
     used = render(plan, audio_path, out_path, cfg, hw,
-                  ass_path=ass_path, keep_voice=opts.keep_voice)
+                  ass_path=ass_path, keep_voice=style.keep_voice,
+                  punch_in=style.punch_in)
 
     return EditResult(
         out_path=out_path,

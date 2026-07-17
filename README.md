@@ -20,6 +20,8 @@ CPU fallback, so the same code runs (slower) on any machine.
 | 3 | Informational note-card overlays from transcript | ✅ working |
 | 4 | AI content generator (Ollama qwen2.5:7b, dental compliance guardrail) | ✅ working |
 | 5 | Mobile-friendly web UI (FastAPI + vanilla JS, phone over LAN) | ✅ working |
+| 5.5 | Dental reel style presets + engagement features + regression suite | ✅ working |
+| 6 | Launcher scripts (double-click setup/run); full installer packaging later | ✅ scripts |
 
 ## Setup (on the ROG laptop)
 
@@ -149,6 +151,63 @@ on your phone over the same wifi. One page, two tabs:
 Status chips in the header show at a glance whether NVENC, Whisper-GPU and
 Ollama are active or something fell back to CPU. Jobs and LLM calls share
 one lock, so GPU stages always run sequentially (8GB VRAM rule).
+
+## Reel styles — tuned for dental Instagram
+
+```bash
+python -m clea edit --clips myclips --audio song.mp3 -o output/reel.mp4 \
+    --style cool-edit --hook-text "SMILE UPGRADE"
+```
+
+| Style | Pacing | Transitions | Extras | Default overlays |
+|---|---|---|---|---|
+| `informational` | medium (0.6–3.0s cuts) | cut on strong beats, crossfade on weak | — | captions + notes + voice |
+| `cool-edit` | fast (0.35–1.6s cuts) | **white-flash pop on strong beats** | **punch-in/out zoom every cut** | none (music-led) |
+| `educational` | calm (0.7–3.5s cuts) | standard | — | captions + notes + voice |
+| `case-study` | calm (0.8–3.5s cuts) | standard | **clip order preserved (before → after)** | captions + notes + voice |
+
+- Style presets set pacing, transitions, ordering, and overlay defaults; any
+  explicit `--captions/--no-captions`, `--notes/--no-notes`,
+  `--keep-voice/--no-keep-voice` flag overrides the preset.
+- `--hook-text "..."` burns a big yellow title over the first ~2s — pair it
+  with a hook line from the content generator.
+- All presets live under `styles:` in `config.yaml` — tweak or add your own.
+
+The content generator mirrors these with `--format`
+(`informational | cool-edit | educational | case-study | myth-bust`):
+
+```bash
+python -m clea generate --topic "smile makeover" --type dental --format case-study
+```
+
+Case-study packs are written anonymised ("in this case", "results vary");
+cool-edit packs come as short on-screen text lines (`overlay_texts`) instead
+of narration. The dental compliance guardrail applies to every format.
+
+## Tests
+
+```bash
+pip install pytest
+python -m pytest tests/ -q
+```
+
+45 tests: beat-grid/slot invariants (cuts land on beats, pacing bounds),
+EDL properties (hook-first ordering, chronological mode, no source reuse,
+crossfade timeline preservation), ASS caption/note/hook generation, ffmpeg
+command construction (NVENC vs CPU args, xfade offsets, keep-voice mix,
+punch-in zoompan), compliance checker, style resolution, and end-to-end
+renders of every style preset verified with ffprobe. Run them after any
+change to the edit engine.
+
+## Quick start scripts
+
+- Windows: `scripts\setup_windows.bat` once, then `scripts\run_windows.bat`
+  (opens the browser automatically).
+- Linux/macOS: `./scripts/run_linux.sh`.
+
+Full single-file installer packaging (PyInstaller/Tauri) and any cloud
+deployment are intentionally deferred — cloud hosting would add real
+compute costs vs. the free local-only setup.
 
 ## Configuration
 

@@ -50,8 +50,9 @@ def cmd_edit(args: argparse.Namespace) -> int:
         return 1
 
     opts = EditOptions(
-        duration=args.duration, captions=args.captions, notes=args.notes,
-        keep_voice=args.keep_voice, no_xfade=args.no_xfade, seed=args.seed,
+        duration=args.duration, style=args.style, captions=args.captions,
+        notes=args.notes, keep_voice=args.keep_voice, no_xfade=args.no_xfade,
+        hook_text=args.hook_text, seed=args.seed,
         whisper_model=args.whisper_model,
     )
     try:
@@ -106,7 +107,8 @@ def cmd_generate(args: argparse.Namespace) -> int:
               file=sys.stderr)
         return 1
     try:
-        pack = generate_content(args.topic, args.content_type, cfg)
+        pack = generate_content(args.topic, args.content_type, cfg,
+                                reel_format=args.reel_format)
     except LLMError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -130,14 +132,19 @@ def main(argv: list[str] | None = None) -> int:
     p_edit.add_argument("-o", "--output", default="output/reel.mp4")
     p_edit.add_argument("--duration", type=float, default=None,
                         help="target seconds (15-30, default from config)")
+    p_edit.add_argument("--style", default="informational",
+                        choices=["informational", "cool-edit", "educational", "case-study"],
+                        help="reel style preset (pacing/transitions/overlay defaults)")
+    p_edit.add_argument("--hook-text", default=None,
+                        help="big opening title burned over the first ~2 seconds")
     p_edit.add_argument("--seed", type=int, default=42)
     p_edit.add_argument("--no-xfade", action="store_true", help="hard cuts only")
-    p_edit.add_argument("--captions", action="store_true",
-                        help="transcribe clip speech and burn in word-highlight captions")
-    p_edit.add_argument("--notes", action="store_true",
-                        help="overlay 2-4 key factual note cards from the transcript")
-    p_edit.add_argument("--keep-voice", action="store_true",
-                        help="keep source clip audio audible, duck the music under it")
+    p_edit.add_argument("--captions", action=argparse.BooleanOptionalAction, default=None,
+                        help="word-highlight captions (default: per style)")
+    p_edit.add_argument("--notes", action=argparse.BooleanOptionalAction, default=None,
+                        help="factual note-card overlays (default: per style)")
+    p_edit.add_argument("--keep-voice", action=argparse.BooleanOptionalAction, default=None,
+                        help="keep clip audio, duck music (default: per style)")
     p_edit.add_argument("--whisper-model", default=None,
                         help="override whisper model size (tiny/base/small/medium/large-v3)")
 
@@ -149,6 +156,10 @@ def main(argv: list[str] | None = None) -> int:
     p_gen.add_argument("--topic", required=True)
     p_gen.add_argument("--type", dest="content_type", default="educational-other",
                        choices=["dental", "educational-other"])
+    p_gen.add_argument("--format", dest="reel_format", default="informational",
+                       choices=["informational", "cool-edit", "educational",
+                                "case-study", "myth-bust"],
+                       help="what kind of reel the pack is written for")
     p_gen.add_argument("--json", action="store_true", help="print raw JSON")
 
     p_srv = sub.add_parser("serve", help="run the web UI (phone-friendly, LAN)")

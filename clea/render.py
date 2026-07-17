@@ -51,6 +51,7 @@ def build_ffmpeg_command(
     hw: HardwareReport,
     ass_path: str | None = None,
     keep_voice: bool = False,
+    punch_in: bool = False,
 ) -> list[str]:
     w, h, fps = cfg.video["width"], cfg.video["height"], cfg.video["fps"]
     total = plan.total_duration
@@ -63,11 +64,22 @@ def build_ffmpeg_command(
 
     filters: list[str] = []
     for i, e in enumerate(plan.entries):
+        zoom = ""
+        if punch_in:
+            # Beat-synced motion: even segments push in, odd ones pull out
+            # (~0.075x/s at 30fps, capped at 1.12x). zoompan's frame counter
+            # restarts per segment chain, so each cut re-triggers the move.
+            if i % 2 == 0:
+                zexpr = "min(1+0.0025*on,1.12)"
+            else:
+                zexpr = "max(1.12-0.0025*on,1.0)"
+            zoom = (f"zoompan=z='{zexpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+                    f":d=1:s={w}x{h}:fps={fps},")
         filters.append(
             f"[{i}:v]trim=start={e.src_start:.4f}:duration={e.src_duration:.4f},"
             f"setpts=PTS-STARTPTS,fps={fps},"
             f"scale={w}:{h}:force_original_aspect_ratio=increase,"
-            f"crop={w}:{h},setsar=1,format=yuv420p,settb=AVTB[s{i}]"
+            f"crop={w}:{h},{zoom}setsar=1,format=yuv420p,settb=AVTB[s{i}]"
         )
 
     # Chain segments left-to-right. Crossfades use the fade extension sourced
@@ -81,7 +93,7 @@ def build_ffmpeg_command(
         out_label = video_out if i == len(plan.entries) - 1 else f"[c{i}]"
         if prev.transition_out == "xfade" and prev.fade_dur > 0:
             filters.append(
-                f"{current}[s{i}]xfade=transition=fade:"
+                f"{current}[s{i}]xfade=transition={prev.fade_kind}:"
                 f"duration={prev.fade_dur:.4f}:offset={boundary:.4f}{out_label}"
             )
         else:
@@ -153,11 +165,13 @@ def render(
     hw: HardwareReport,
     ass_path: str | None = None,
     keep_voice: bool = False,
+    punch_in: bool = False,
 ) -> str:
     if not plan.entries:
         raise ValueError("Edit plan is empty — nothing to render.")
     cmd = build_ffmpeg_command(plan, audio_path, out_path, cfg, hw,
-                               ass_path=ass_path, keep_voice=keep_voice)
+                               ass_path=ass_path, keep_voice=keep_voice,
+                               punch_in=punch_in)
     encoder, _ = choose_encoder_args(cfg, hw)
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:

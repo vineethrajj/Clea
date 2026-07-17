@@ -29,6 +29,7 @@ class Slot:
     duration: float       # timeline length (s)
     transition_out: str   # "cut" | "xfade" | "end"
     fade_dur: float = 0.0
+    fade_kind: str = "fade"   # ffmpeg xfade transition name (fade | fadewhite)
 
 
 @dataclass
@@ -40,6 +41,7 @@ class EDLEntry:
     transition_out: str
     fade_dur: float
     score: float
+    fade_kind: str = "fade"
 
 
 @dataclass
@@ -51,7 +53,8 @@ class EditPlan:
         return sum(e.timeline_duration for e in self.entries)
 
 
-def build_slots(grid: BeatGrid, target_duration: float, pacing: dict) -> list[Slot]:
+def build_slots(grid: BeatGrid, target_duration: float, pacing: dict,
+                transitions: str = "standard") -> list[Slot]:
     hook_seconds = float(pacing["hook_seconds"])
     hook_min = float(pacing["hook_min_cut"])
     body_min = float(pacing["body_min_cut"])
@@ -84,8 +87,18 @@ def build_slots(grid: BeatGrid, target_duration: float, pacing: dict) -> list[Sl
             slots.append(Slot(prev, max_cut, "cut"))
             prev += max_cut
             length = t - prev
-        transition = "cut" if s >= strong_threshold else "xfade"
-        slots.append(Slot(prev, length, transition, fade if transition == "xfade" else 0.0))
+        if transitions == "flash":
+            # Cool-edit: white-flash pop ON the strong beats, hard cut otherwise.
+            if s >= strong_threshold:
+                slots.append(Slot(prev, length, "xfade", fade, "fadewhite"))
+            else:
+                slots.append(Slot(prev, length, "cut"))
+        else:
+            # Standard: hard cut on strong beats, soft crossfade on weak ones.
+            if s >= strong_threshold:
+                slots.append(Slot(prev, length, "cut"))
+            else:
+                slots.append(Slot(prev, length, "xfade", fade, "fade"))
         prev = t
     if target - prev > 0.25:
         slots.append(Slot(prev, target - prev, "cut"))
@@ -127,11 +140,62 @@ def _pick_segment(
     return best[1], best[2], best[0]
 
 
+def _best_start_in_range(analysis: ClipAnalysis, needed: float,
+                         lo: float, hi: float) -> tuple[float, float]:
+    """Best-scoring window of length `needed` starting within [lo, hi]."""
+    lo = max(0.0, lo)
+    hi = min(hi, analysis.duration - needed)
+    if hi < lo:
+        return lo, segment_score(analysis, lo, needed)
+    starts = np.arange(lo, hi + 1e-9, 0.25)
+    best_st, best_sc = float(starts[0]), -1e9
+    for st in starts:
+        sc = segment_score(analysis, float(st), needed)
+        if sc > best_sc:
+            best_st, best_sc = float(st), sc
+    return best_st, best_sc
+
+
+def _chronological_assignments(
+    analyses: list[ClipAnalysis], slots: list[Slot]
+) -> list[tuple[ClipAnalysis, float, float]]:
+    """Preserve narrative order (case studies: before -> during -> after).
+
+    Slots are distributed across clips in their given (filename) order,
+    proportional to clip duration; within a clip, segments move forward in
+    time, choosing the best-scoring window inside each sequential span.
+    """
+    total_dur = sum(a.duration for a in analyses)
+    counts = [int(round(len(slots) * a.duration / total_dur)) for a in analyses]
+    while sum(counts) < len(slots):
+        counts[counts.index(min(counts))] += 1
+    while sum(counts) > len(slots):
+        counts[counts.index(max(counts))] -= 1
+
+    picks: list[tuple[ClipAnalysis, float, float]] = []
+    slot_iter = iter(slots)
+    for analysis, k in zip(analyses, counts):
+        if k <= 0:
+            continue
+        span = analysis.duration / k
+        cursor = 0.0
+        for j in range(k):
+            slot = next(slot_iter)
+            needed = slot.duration + (slot.fade_dur if slot.transition_out == "xfade" else 0.0)
+            lo, hi = max(cursor, j * span), (j + 1) * span - needed
+            st, sc = _best_start_in_range(analysis, needed, lo, max(hi, lo))
+            st = min(st, max(analysis.duration - needed, 0.0))
+            picks.append((analysis, st, sc))
+            cursor = st + needed
+    return picks
+
+
 def build_edl(
     analyses: list[ClipAnalysis],
     slots: list[Slot],
     scoring_cfg: dict,
     seed: int = 42,
+    ordering: str = "hook_first",
 ) -> EditPlan:
     rng = random.Random(seed)
     repeat_penalty = float(scoring_cfg["repeat_clip_penalty"])
@@ -139,12 +203,18 @@ def build_edl(
     plan = EditPlan()
     last_clip: str | None = None
 
-    for slot in slots:
+    chrono = _chronological_assignments(analyses, slots) \
+        if ordering == "chronological" else None
+
+    for idx, slot in enumerate(slots):
         fade_ext = slot.fade_dur if slot.transition_out == "xfade" else 0.0
         needed = slot.duration + fade_ext
-        analysis, src_start, score = _pick_segment(
-            analyses, needed, used, last_clip, repeat_penalty, rng
-        )
+        if chrono is not None:
+            analysis, src_start, score = chrono[idx]
+        else:
+            analysis, src_start, score = _pick_segment(
+                analyses, needed, used, last_clip, repeat_penalty, rng
+            )
         # Clamp the fade if the clip genuinely runs out of material.
         avail = analysis.duration - src_start
         if avail < needed:
@@ -160,6 +230,7 @@ def build_edl(
             transition_out=transition,
             fade_dur=fade_ext,
             score=score,
+            fade_kind=slot.fade_kind,
         ))
         last_clip = analysis.path
     return plan

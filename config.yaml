@@ -19,13 +19,53 @@ encoder:
   cpu_args:   ["-c:v", "libx264", "-preset", "fast", "-crf", "18", "-profile:v", "high"]
   audio_args: ["-c:a", "aac", "-b:a", "192k"]
 
-pacing:
+pacing:                    # base pacing; style presets below override per-reel
   hook_seconds: 6.0        # opening section gets the fastest cuts + best-scored material
   hook_min_cut: 0.45       # shortest allowed cut length (s) during the hook
   body_min_cut: 0.95       # shortest allowed cut length (s) after the hook
   max_cut: 2.5             # never hold a single shot longer than this
-  strong_beat_percentile: 60  # onset strength >= this percentile => hard cut, else crossfade
-  crossfade: 0.20          # seconds; crossfades land on weak beats
+  strong_beat_percentile: 60  # onset strength >= this percentile => "strong" beat
+  crossfade: 0.20          # seconds; soft transitions on weak beats
+
+# Reel style presets — tuned for what performs on dental Instagram.
+# `defaults` pre-set captions/notes/keep_voice but explicit flags always win.
+# ordering: hook_first (best material opens) | chronological (before -> after)
+# transitions: standard (hard cut on strong, crossfade on weak)
+#            | flash (white-flash pop on strong beats, hard cut on weak)
+styles:
+  informational:           # "did you know" clinic content, voiceover-led
+    pacing: {hook_seconds: 5.0, hook_min_cut: 0.60, body_min_cut: 1.20,
+             max_cut: 3.0, strong_beat_percentile: 60, crossfade: 0.22}
+    defaults: {captions: true, notes: true, keep_voice: true}
+    ordering: hook_first
+    transitions: standard
+    punch_in: false
+  cool-edit:               # hype montage: fast cuts, beat flashes, punch-ins
+    pacing: {hook_seconds: 7.0, hook_min_cut: 0.35, body_min_cut: 0.70,
+             max_cut: 1.6, strong_beat_percentile: 75, crossfade: 0.12}
+    defaults: {captions: false, notes: false, keep_voice: false}
+    ordering: hook_first
+    transitions: flash
+    punch_in: true
+  educational:             # explainer / exam-prep, slower and clearer
+    pacing: {hook_seconds: 5.0, hook_min_cut: 0.70, body_min_cut: 1.40,
+             max_cut: 3.5, strong_beat_percentile: 55, crossfade: 0.25}
+    defaults: {captions: true, notes: true, keep_voice: true}
+    ordering: hook_first
+    transitions: standard
+    punch_in: false
+  case-study:              # before/after review: clip order preserved
+    pacing: {hook_seconds: 4.0, hook_min_cut: 0.80, body_min_cut: 1.50,
+             max_cut: 3.5, strong_beat_percentile: 60, crossfade: 0.25}
+    defaults: {captions: true, notes: true, keep_voice: true}
+    ordering: chronological
+    transitions: standard
+    punch_in: false
+
+hook_title:                # optional big opening title (--hook-text)
+  font_size: 88
+  seconds: 2.2
+  color: "#FFD400"
 
 scoring:
   sample_fps: 4.0          # frames/second analysed per clip (downscaled greyscale)

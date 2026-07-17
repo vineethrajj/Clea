@@ -106,11 +106,16 @@ async def create_edit(
     clips: list[UploadFile] = File(...),
     audio: UploadFile = File(...),
     duration: float = Form(20.0),
+    style: str = Form("informational"),
     captions: bool = Form(False),
     notes: bool = Form(False),
     keep_voice: bool = Form(False),
     no_xfade: bool = Form(False),
+    hook_text: str = Form(""),
 ) -> dict:
+    assert _cfg is not None
+    if style not in (_cfg.get("styles") or {}):
+        raise HTTPException(400, f"unknown style '{style}'")
     job_id = uuid.uuid4().hex[:12]
     ws = _workspace() / job_id
     clips_dir = ws / "clips"
@@ -135,9 +140,10 @@ async def create_edit(
         "created": time.time(),
         "clips": clip_paths, "audio": str(audio_path),
         "out": str(ws / "reel.mp4"),
-        "options": EditOptions(duration=duration, captions=captions,
-                               notes=notes, keep_voice=keep_voice,
-                               no_xfade=no_xfade),
+        "options": EditOptions(duration=duration, style=style,
+                               captions=captions, notes=notes,
+                               keep_voice=keep_voice, no_xfade=no_xfade,
+                               hook_text=hook_text.strip() or None),
     }
     threading.Thread(target=_run_job, args=(job_id,), daemon=True).start()
     return {"job_id": job_id}
@@ -168,6 +174,7 @@ def job_video(job_id: str) -> FileResponse:
 class GenerateRequest(BaseModel):
     topic: str
     content_type: str = "educational-other"
+    reel_format: str = "informational"
 
 
 @app.post("/api/generate")
@@ -183,8 +190,9 @@ def generate(req: GenerateRequest) -> dict:
             503, f"Ollama is not running. Start it and pull {_cfg.llm['model']}.")
     try:
         with GPU_LOCK:  # LLM inference is a GPU stage too
-            pack = generate_content(req.topic.strip(), req.content_type, _cfg)
-    except LLMError as exc:
+            pack = generate_content(req.topic.strip(), req.content_type, _cfg,
+                                    reel_format=req.reel_format)
+    except (LLMError, ValueError) as exc:
         raise HTTPException(502, str(exc)) from exc
     return pack.to_dict()
 

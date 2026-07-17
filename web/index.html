@@ -109,7 +109,20 @@
     </div>
 
     <div class="card">
-      <h2>3 · Options</h2>
+      <h2>3 · Style</h2>
+      <select id="opt-style">
+        <option value="informational">Informational — clinic facts, voice + notes</option>
+        <option value="cool-edit">Cool edit — fast cuts, beat flashes, punch-ins</option>
+        <option value="educational">Educational — clear explainer pacing</option>
+        <option value="case-study">Case study — before → after, order kept</option>
+      </select>
+      <div style="height:10px"></div>
+      <input type="text" id="opt-hook" placeholder="Hook title (optional, shows big for ~2s)"
+             autocomplete="off" maxlength="60">
+    </div>
+
+    <div class="card">
+      <h2>4 · Options</h2>
       <label class="row">Captions (Whisper)<input type="checkbox" id="opt-captions"></label>
       <label class="row">Info note cards<input type="checkbox" id="opt-notes"></label>
       <label class="row">Keep clip voices audible<input type="checkbox" id="opt-voice"></label>
@@ -135,6 +148,14 @@
       <select id="gen-type">
         <option value="dental">Dental (compliance-safe)</option>
         <option value="educational-other">Educational / other</option>
+      </select>
+      <div style="height:10px"></div>
+      <select id="gen-format">
+        <option value="informational">Informational reel</option>
+        <option value="cool-edit">Cool edit (on-screen text)</option>
+        <option value="educational">Educational explainer</option>
+        <option value="case-study">Case study review</option>
+        <option value="myth-bust">Myth-busting</option>
       </select>
       <button class="btn" id="btn-gen" style="margin-top:14px">Generate content</button>
       <div class="status" id="gen-status"></div>
@@ -199,6 +220,22 @@ function updateGo() { $("btn-go").disabled = !(clipFiles.length && audioFile); }
 $("opt-duration").oninput = () =>
   $("duration-label").textContent = $("opt-duration").value + "s";
 
+/* style presets pre-fill the toggles; user can still override after */
+const STYLE_DEFAULTS = {
+  "informational": { captions: true,  notes: true,  voice: true,  xfade: true },
+  "cool-edit":     { captions: false, notes: false, voice: false, xfade: true },
+  "educational":   { captions: true,  notes: true,  voice: true,  xfade: true },
+  "case-study":    { captions: true,  notes: true,  voice: true,  xfade: true },
+};
+$("opt-style").onchange = () => {
+  const d = STYLE_DEFAULTS[$("opt-style").value];
+  $("opt-captions").checked = d.captions;
+  $("opt-notes").checked = d.notes;
+  $("opt-voice").checked = d.voice;
+  $("opt-xfade").checked = d.xfade;
+};
+$("opt-style").onchange();
+
 /* ---------- edit job ---------- */
 let polling = null;
 $("btn-go").onclick = async () => {
@@ -206,6 +243,8 @@ $("btn-go").onclick = async () => {
   clipFiles.forEach(f => fd.append("clips", f));
   fd.append("audio", audioFile);
   fd.append("duration", $("opt-duration").value);
+  fd.append("style", $("opt-style").value);
+  fd.append("hook_text", $("opt-hook").value);
   fd.append("captions", $("opt-captions").checked);
   fd.append("notes", $("opt-notes").checked);
   fd.append("keep_voice", $("opt-voice").checked);
@@ -263,7 +302,8 @@ $("btn-gen").onclick = async () => {
     const resp = await fetch("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic, content_type: $("gen-type").value }),
+      body: JSON.stringify({ topic, content_type: $("gen-type").value,
+                             reel_format: $("gen-format").value }),
     });
     if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
     renderPack(await resp.json());
@@ -298,6 +338,8 @@ function renderPack(p) {
   card.appendChild(block("Script", script));
   card.appendChild(block("Caption", p.caption));
   card.appendChild(block("Hashtags", (p.hashtags || []).join(" ")));
+  if (p.overlay_texts && p.overlay_texts.length)
+    card.appendChild(block("On-screen text", p.overlay_texts.join("\n")));
   if (p.compliance_warnings && p.compliance_warnings.length) {
     const warn = document.createElement("p");
     warn.className = "muted";
