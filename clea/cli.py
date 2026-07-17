@@ -169,6 +169,29 @@ def cmd_transcribe(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_generate(args: argparse.Namespace) -> int:
+    import json
+
+    from .config import load_config
+    from .content import format_pack, generate_content
+    from .llm import LLMError, ollama_available
+
+    cfg = load_config(args.config)
+    uses_cloud = cfg.llm["cloud_provider"] and cfg.llm["cloud_api_key"]
+    if not uses_cloud and not ollama_available(cfg):
+        print("error: Ollama is not running (and no cloud provider configured).\n"
+              f"Start it and pull the model:  ollama pull {cfg.llm['model']}",
+              file=sys.stderr)
+        return 1
+    try:
+        pack = generate_content(args.topic, args.content_type, cfg)
+    except LLMError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(pack.to_dict(), indent=2) if args.json else format_pack(pack))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="clea", description="Beat-sync video auto-editor")
     parser.add_argument("--config", default=None, help="path to config.yaml")
@@ -200,9 +223,15 @@ def main(argv: list[str] | None = None) -> int:
     p_tr.add_argument("--clips", required=True, help="folder of clips or a single file")
     p_tr.add_argument("--whisper-model", default=None)
 
+    p_gen = sub.add_parser("generate", help="AI content pack for a topic (local Ollama)")
+    p_gen.add_argument("--topic", required=True)
+    p_gen.add_argument("--type", dest="content_type", default="educational-other",
+                       choices=["dental", "educational-other"])
+    p_gen.add_argument("--json", action="store_true", help="print raw JSON")
+
     args = parser.parse_args(argv)
     return {"doctor": cmd_doctor, "beats": cmd_beats, "edit": cmd_edit,
-            "transcribe": cmd_transcribe}[args.command](args)
+            "transcribe": cmd_transcribe, "generate": cmd_generate}[args.command](args)
 
 
 if __name__ == "__main__":
