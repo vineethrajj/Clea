@@ -32,6 +32,19 @@ scoring:
   analysis_width: 160      # px; analysis resolution, not output resolution
   repeat_clip_penalty: 0.15  # discourage the same clip in consecutive slots
 
+captions:                  # Phase 2 — word-by-word highlight style
+  font: Arial              # must be installed on the rendering machine
+  font_size: 68
+  outline: 4               # black outline thickness (px at 1080x1920)
+  highlight_color: "#FFD400"   # currently-spoken word
+  margin_v: 460            # px above bottom edge — clears the Reels UI zone
+  max_words_per_line: 4
+
+audio_mix:
+  music_volume: 1.0
+  music_volume_with_voice: 0.25  # duck music under speech when --keep-voice
+  voice_volume: 1.0
+
 whisper:                   # Phase 2
   model: medium            # 8GB VRAM: "medium" fits comfortably since stages run sequentially
   device: auto             # auto -> cuda if available, else cpu

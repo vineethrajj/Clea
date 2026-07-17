@@ -16,7 +16,7 @@ CPU fallback, so the same code runs (slower) on any machine.
 | Phase | Feature | Status |
 |---|---|---|
 | 1 | Beat-sync auto-cut CLI (librosa beats + OpenCV scoring + NVENC export) | ✅ working |
-| 2 | Burned-in captions (faster-whisper "medium" on CUDA, ASS word-highlight) | ⬜ next |
+| 2 | Burned-in captions (faster-whisper "medium" on CUDA, ASS word-highlight) | ✅ working |
 | 3 | Informational note-card overlays from transcript | ⬜ |
 | 4 | AI content generator (Ollama qwen2.5:7b, dental compliance guardrail) | ⬜ |
 | 5 | Mobile-friendly web UI (FastAPI + vanilla JS, phone over LAN) | ⬜ |
@@ -60,6 +60,34 @@ python -m clea edit --clips test_media/clips --audio test_media/beat_track.wav \
 
 Options: `--duration 15..30`, `--no-xfade` (hard cuts only), `--seed N`
 (re-roll segment choices), `--config path/to/config.yaml`.
+
+## Phase 2 usage — captions
+
+```bash
+pip install faster-whisper   # once
+
+# captions off by default; add per export:
+python -m clea edit --clips myclips --audio song.mp3 -o output/reel.mp4 \
+    --captions --keep-voice
+
+# debug: see exactly what whisper hears in your clips
+python -m clea transcribe --clips myclips
+```
+
+- `--captions` transcribes every clip (word timestamps, VAD-filtered),
+  remaps the words of each *used* segment onto the edit timeline, writes an
+  `.ass` file next to the output, and burns it in — white bold text, black
+  outline, currently-spoken word highlighted yellow, lower-third placement
+  clear of the Reels UI. Style lives under `captions:` in `config.yaml`.
+- `--keep-voice` keeps the source clips' own audio audible in the final mix
+  (hard-cut on the timeline grid) and ducks the music to 25% under it —
+  for talking-head/voiceover content where the captions caption real speech.
+- `--whisper-model tiny|base|small|medium|large-v3` overrides the config
+  default for one run.
+- On the RTX 4070 the model auto-selects **medium on CUDA (float16)**;
+  machines without CUDA drop to **small on CPU (int8)** automatically. The
+  whisper model is loaded once, used, and freed *before* the render starts —
+  GPU stages never overlap (8GB VRAM rule).
 
 ### How the edit works
 

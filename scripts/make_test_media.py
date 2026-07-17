@@ -32,6 +32,36 @@ def make_clip(name: str, lavfi: str, seconds: float) -> None:
     print(f"  wrote {out}")
 
 
+SPEECH_TEXT = (
+    "Regular dental checkups help prevent cavities and gum disease. "
+    "In most cases, professional cleaning removes plaque that brushing misses. "
+    "Ask your dentist how often you should schedule a visit."
+)
+
+
+def make_speech_clip(name: str, text: str) -> None:
+    """Talking-head stand-in: synthesized voice over a moving background,
+    so the Phase 2 caption pipeline has real speech to transcribe.
+    Skipped when espeak-ng is not installed."""
+    import shutil
+    if not shutil.which("espeak-ng"):
+        print("  (espeak-ng not found — skipping speech clip)")
+        return
+    wav = CLIPS.parent / "_speech.wav"
+    subprocess.run(["espeak-ng", "-v", "en-us", "-s", "150", "-w", str(wav), text],
+                   check=True)
+    out = CLIPS / name
+    subprocess.run([
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30",
+        "-i", str(wav),
+        "-shortest", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+        "-pix_fmt", "yuv420p", "-c:a", "aac", str(out),
+    ], check=True)
+    wav.unlink()
+    print(f"  wrote {out} (with speech)")
+
+
 def make_beat_track(path: Path, bpm: float = 120.0, seconds: float = 40.0,
                     sr: int = 44100) -> None:
     t_beat = 60.0 / bpm
@@ -82,6 +112,8 @@ def main() -> None:
     make_clip("zoom_motion.mp4", "mandelbrot", 12)
     # Low energy: nearly static gradient (should be picked last).
     make_clip("static_boring.mp4", "gradients=speed=0.01", 12)
+    # Speech clip for the caption pipeline (Phase 2).
+    make_speech_clip("talking.mp4", SPEECH_TEXT)
     print("Generating beat track...")
     make_beat_track(ROOT / "test_media" / "beat_track.wav")
     print("Done. Try:\n  python -m clea edit --clips test_media/clips "

@@ -5,8 +5,8 @@ soundfile
 opencv-python-headless>=4.8
 PyYAML
 
-# ---- Phase 2+: captions (installed when you reach Phase 2) ----
-# faster-whisper>=1.0        # CUDA build of ctranslate2 is pulled in automatically;
+# ---- Phase 2: captions ----
+faster-whisper>=1.0          # CUDA build of ctranslate2 is pulled in automatically;
                              # needs NVIDIA driver + cuBLAS/cuDNN for GPU mode.
 
 # ---- Phase 4+: AI content generator ----
