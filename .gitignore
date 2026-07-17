@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+output/
+uploads/
+test_media/
+*.mp4
+*.mov
+*.mkv
+*.wav
+*.mp3
+*.m4a
+!docs/**/*.mp4
+.DS_Store
+config.local.yaml

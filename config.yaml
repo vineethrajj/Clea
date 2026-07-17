@@ -1,0 +1,51 @@
+# Clea configuration — tuned for ASUS ROG Strix 16 (i9, 16GB RAM, RTX 4070 Laptop 8GB VRAM).
+# Every GPU-touching stage runs SEQUENTIALLY (never concurrently) to respect the 8GB VRAM ceiling.
+
+video:
+  width: 1080            # 9:16 vertical for Instagram Reels
+  height: 1920
+  fps: 30
+  target_duration: 20.0  # seconds; clamped to [min_duration, max_duration]
+  min_duration: 15.0
+  max_duration: 30.0
+
+encoder:
+  # "auto" probes for NVENC at startup and falls back to libx264 if unavailable.
+  # Force with "nvenc" or "cpu".
+  mode: auto
+  nvenc_args: ["-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq",
+               "-rc", "vbr", "-cq", "19", "-b:v", "0",
+               "-maxrate", "20M", "-bufsize", "40M", "-profile:v", "high"]
+  cpu_args:   ["-c:v", "libx264", "-preset", "fast", "-crf", "18", "-profile:v", "high"]
+  audio_args: ["-c:a", "aac", "-b:a", "192k"]
+
+pacing:
+  hook_seconds: 6.0        # opening section gets the fastest cuts + best-scored material
+  hook_min_cut: 0.45       # shortest allowed cut length (s) during the hook
+  body_min_cut: 0.95       # shortest allowed cut length (s) after the hook
+  max_cut: 2.5             # never hold a single shot longer than this
+  strong_beat_percentile: 60  # onset strength >= this percentile => hard cut, else crossfade
+  crossfade: 0.20          # seconds; crossfades land on weak beats
+
+scoring:
+  sample_fps: 4.0          # frames/second analysed per clip (downscaled greyscale)
+  analysis_width: 160      # px; analysis resolution, not output resolution
+  repeat_clip_penalty: 0.15  # discourage the same clip in consecutive slots
+
+whisper:                   # Phase 2
+  model: medium            # 8GB VRAM: "medium" fits comfortably since stages run sequentially
+  device: auto             # auto -> cuda if available, else cpu
+  cpu_fallback_model: small
+  compute_type_gpu: float16
+  compute_type_cpu: int8
+
+llm:                       # Phase 4
+  provider: ollama         # fully local by default; no paid API needed
+  ollama_url: http://localhost:11434
+  model: qwen2.5:7b        # fits fully in 8GB VRAM; swap to qwen3:14b / llama3.2:3b here
+  # Optional cloud fallback for higher-quality output. The app runs fully without it.
+  cloud_provider: null     # anthropic | groq | gemini | null
+  cloud_api_key: null      # or set env var CLEA_CLOUD_API_KEY
+
+paths:
+  output_dir: output

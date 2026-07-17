@@ -1,0 +1,18 @@
+# ---- Phase 1: beat-sync auto-cut engine ----
+numpy
+librosa>=0.10
+soundfile
+opencv-python-headless>=4.8
+PyYAML
+
+# ---- Phase 2+: captions (installed when you reach Phase 2) ----
+# faster-whisper>=1.0        # CUDA build of ctranslate2 is pulled in automatically;
+                             # needs NVIDIA driver + cuBLAS/cuDNN for GPU mode.
+
+# ---- Phase 4+: AI content generator ----
+# requests                   # talks to local Ollama HTTP API
+
+# ---- Phase 5: web UI ----
+# fastapi
+# uvicorn[standard]
+# python-multipart
