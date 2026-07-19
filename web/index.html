@@ -74,6 +74,21 @@
   .copy.done { color: var(--ok); border-color: var(--ok); }
   .hidden { display: none !important; }
   .muted { color: var(--dim); font-size: 13px; margin-top: 8px; }
+  .track {
+    display: flex; align-items: center; gap: 10px; padding: 10px 8px;
+    border-radius: 10px; border: 1px solid var(--line); margin-bottom: 8px;
+    background: var(--panel2);
+  }
+  .track.selected { border-color: var(--accent); background: #2a2610; }
+  .track .info { flex: 1; min-width: 0; }
+  .track .title { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .track .meta { font-size: 12px; color: var(--dim); margin-top: 2px; }
+  .track audio { height: 32px; max-width: 120px; }
+  .track .pick {
+    min-width: 60px; min-height: 40px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .track.selected .pick { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -103,9 +118,18 @@
 
     <div class="card">
       <h2>2 · Music</h2>
-      <div class="drop" id="drop-audio">Tap to choose a music track</div>
-      <input type="file" id="in-audio" accept="audio/*" class="hidden">
-      <ul class="filelist" id="list-audio"></ul>
+      <div class="tabs" style="margin:0 0 12px">
+        <button class="tab active" id="music-tab-library" style="min-height:40px;font-size:14px">Pick a track</button>
+        <button class="tab" id="music-tab-upload" style="min-height:40px;font-size:14px">Upload my own</button>
+      </div>
+      <div id="music-library-pane">
+        <div id="track-list" class="muted">Loading library…</div>
+      </div>
+      <div id="music-upload-pane" class="hidden">
+        <div class="drop" id="drop-audio">Tap to choose a music track</div>
+        <input type="file" id="in-audio" accept="audio/*" class="hidden">
+        <ul class="filelist" id="list-audio"></ul>
+      </div>
     </div>
 
     <div class="card">
@@ -212,10 +236,71 @@ bindPicker("drop-clips", "in-clips", "list-clips", true, files => {
 });
 bindPicker("drop-audio", "in-audio", "list-audio", false, files => {
   audioFile = files[0] || null;
+  selectedTrackId = null;
   $("list-audio").innerHTML = audioFile ? `<li>🎵 ${audioFile.name}</li>` : "";
   updateGo();
 });
-function updateGo() { $("btn-go").disabled = !(clipFiles.length && audioFile); }
+function updateGo() { $("btn-go").disabled = !(clipFiles.length && (audioFile || selectedTrackId)); }
+
+/* ---------- music tabs + library picker ---------- */
+let selectedTrackId = null;
+$("music-tab-library").onclick = () => {
+  $("music-tab-library").classList.add("active");
+  $("music-tab-upload").classList.remove("active");
+  $("music-library-pane").classList.remove("hidden");
+  $("music-upload-pane").classList.add("hidden");
+  audioFile = null; $("list-audio").innerHTML = "";
+  updateGo();
+};
+$("music-tab-upload").onclick = () => {
+  $("music-tab-upload").classList.add("active");
+  $("music-tab-library").classList.remove("active");
+  $("music-upload-pane").classList.remove("hidden");
+  $("music-library-pane").classList.add("hidden");
+  selectedTrackId = null;
+  updateGo();
+};
+
+async function loadMusicLibrary() {
+  try {
+    const tracks = await (await fetch("/api/music")).json();
+    const list = $("track-list");
+    if (!tracks.length) {
+      list.innerHTML = `<p class="muted">No tracks yet — drop mp3/wav files into
+        <code>music_library/tracks</code> and reload, or check the README for
+        free royalty-free sources.</p>`;
+      return;
+    }
+    list.innerHTML = "";
+    tracks.forEach(t => {
+      const row = document.createElement("div");
+      row.className = "track";
+      row.id = `track-${t.id}`;
+      row.innerHTML = `
+        <audio controls preload="none" src="/api/music/${t.id}/file"></audio>
+        <div class="info">
+          <div class="title">${t.title}</div>
+          <div class="meta">${t.tempo.toFixed(0)} BPM · ${Math.round(t.duration)}s${t.tags.length ? " · " + t.tags.join(", ") : ""}</div>
+        </div>
+        <button class="pick">${selectedTrackId === t.id ? "Selected" : "Select"}</button>`;
+      row.querySelector(".pick").onclick = () => {
+        selectedTrackId = t.id;
+        audioFile = null;
+        document.querySelectorAll(".track").forEach(r => {
+          r.classList.remove("selected");
+          r.querySelector(".pick").textContent = "Select";
+        });
+        row.classList.add("selected");
+        row.querySelector(".pick").textContent = "Selected";
+        updateGo();
+      };
+      list.appendChild(row);
+    });
+  } catch {
+    $("track-list").innerHTML = `<p class="muted">Could not load music library.</p>`;
+  }
+}
+loadMusicLibrary();
 
 $("opt-duration").oninput = () =>
   $("duration-label").textContent = $("opt-duration").value + "s";
@@ -241,7 +326,8 @@ let polling = null;
 $("btn-go").onclick = async () => {
   const fd = new FormData();
   clipFiles.forEach(f => fd.append("clips", f));
-  fd.append("audio", audioFile);
+  if (selectedTrackId) fd.append("music_id", selectedTrackId);
+  else fd.append("audio", audioFile);
   fd.append("duration", $("opt-duration").value);
   fd.append("style", $("opt-style").value);
   fd.append("hook_text", $("opt-hook").value);

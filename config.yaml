@@ -110,5 +110,9 @@ llm:                       # Phase 4
   cloud_provider: null     # anthropic | groq | gemini | null
   cloud_api_key: null      # or set env var CLEA_CLOUD_API_KEY
 
+music_library:            # pick-from-list music (like a Reels song picker)
+  dir: music_library/tracks       # drop your own royalty-free/licensed tracks here
+  manifest: music_library/manifest.json  # auto-generated; do not hand-edit tempo/duration
+
 paths:
   output_dir: output

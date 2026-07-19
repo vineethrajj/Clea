@@ -16,6 +16,7 @@ import socket
 import threading
 import time
 import uuid
+from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -26,6 +27,7 @@ from .config import Config, load_config
 from .content import CONTENT_TYPES, generate_content
 from .hardware import HardwareReport, detect_ollama, probe
 from .llm import LLMError, ollama_available
+from .music_library import ensure_starter_pack, scan_library, track_path
 from .pipeline import EditOptions, collect_clips, run_edit
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -51,6 +53,29 @@ def _startup() -> None:
     if _cfg is None:
         _cfg = load_config()
     _hw = probe(_cfg.llm["ollama_url"])
+    ensure_starter_pack(_cfg)
+
+
+@app.get("/api/music")
+def music_list() -> list[dict]:
+    assert _cfg is not None
+    tracks = ensure_starter_pack(_cfg)
+    return [asdict(t) for t in tracks]
+
+
+@app.post("/api/music/rescan")
+def music_rescan() -> list[dict]:
+    assert _cfg is not None
+    return [asdict(t) for t in scan_library(_cfg)]
+
+
+@app.get("/api/music/{track_id}/file")
+def music_file(track_id: str):
+    assert _cfg is not None
+    path = track_path(_cfg, track_id)
+    if not path:
+        raise HTTPException(404, "unknown track")
+    return FileResponse(path, media_type="audio/mpeg")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -104,7 +129,8 @@ def _run_job(job_id: str) -> None:
 @app.post("/api/edit")
 async def create_edit(
     clips: list[UploadFile] = File(...),
-    audio: UploadFile = File(...),
+    audio: UploadFile | None = File(None),
+    music_id: str = Form(""),
     duration: float = Form(20.0),
     style: str = Form("informational"),
     captions: bool = Form(False),
@@ -116,6 +142,9 @@ async def create_edit(
     assert _cfg is not None
     if style not in (_cfg.get("styles") or {}):
         raise HTTPException(400, f"unknown style '{style}'")
+    if not audio and not music_id:
+        raise HTTPException(400, "provide either an audio upload or music_id")
+
     job_id = uuid.uuid4().hex[:12]
     ws = _workspace() / job_id
     clips_dir = ws / "clips"
@@ -125,10 +154,18 @@ async def create_edit(
         suffix = Path(up.filename or f"clip{i}.mp4").suffix or ".mp4"
         with open(clips_dir / f"{i:03d}{suffix}", "wb") as fh:
             shutil.copyfileobj(up.file, fh)
-    audio_suffix = Path(audio.filename or "track.mp3").suffix or ".mp3"
-    audio_path = ws / f"audio{audio_suffix}"
-    with open(audio_path, "wb") as fh:
-        shutil.copyfileobj(audio.file, fh)
+
+    if music_id:
+        lib_path = track_path(_cfg, music_id)
+        if not lib_path:
+            shutil.rmtree(ws, ignore_errors=True)
+            raise HTTPException(404, "unknown music_id")
+        audio_path = lib_path
+    else:
+        audio_suffix = Path(audio.filename or "track.mp3").suffix or ".mp3"
+        audio_path = ws / f"audio{audio_suffix}"
+        with open(audio_path, "wb") as fh:
+            shutil.copyfileobj(audio.file, fh)
 
     clip_paths = collect_clips(clips_dir)
     if not clip_paths:

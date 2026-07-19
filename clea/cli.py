@@ -24,6 +24,25 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if report.ffmpeg else 1
 
 
+def cmd_music(args: argparse.Namespace) -> int:
+    from .config import load_config
+    from .music_library import ensure_starter_pack, scan_library
+
+    cfg = load_config(args.config)
+    if args.music_cmd == "scan":
+        tracks = scan_library(cfg)
+    else:  # list
+        tracks = ensure_starter_pack(cfg)
+    if not tracks:
+        print("no tracks found — drop mp3/wav files into "
+              f"{cfg.music_library['dir']} then run 'clea music scan'")
+        return 0
+    for t in tracks:
+        tags = ",".join(t.tags) if t.tags else "-"
+        print(f"  {t.id}  {t.title:<28s} {t.tempo:6.1f} BPM  {t.duration:6.1f}s  [{tags}]")
+    return 0
+
+
 def cmd_beats(args: argparse.Namespace) -> int:
     from .audio import analyze_beats
 
@@ -166,13 +185,19 @@ def main(argv: list[str] | None = None) -> int:
     p_srv.add_argument("--host", default="0.0.0.0")
     p_srv.add_argument("--port", type=int, default=8000)
 
+    p_music = sub.add_parser("music", help="manage the local pick-from-list music library")
+    p_music.add_argument("music_cmd", choices=["scan", "list"],
+                         help="scan: re-tag new/changed files; list: show library "
+                              "(generates a starter pack if empty)")
+
     args = parser.parse_args(argv)
     if args.command == "serve":
         from .server import serve
         serve(args.host, args.port, args.config)
         return 0
     return {"doctor": cmd_doctor, "beats": cmd_beats, "edit": cmd_edit,
-            "transcribe": cmd_transcribe, "generate": cmd_generate}[args.command](args)
+            "transcribe": cmd_transcribe, "generate": cmd_generate,
+            "music": cmd_music}[args.command](args)
 
 
 if __name__ == "__main__":

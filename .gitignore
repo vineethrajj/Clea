@@ -5,6 +5,7 @@ venv/
 output/
 uploads/
 test_media/
+music_library/
 *.mp4
 *.mov
 *.mkv

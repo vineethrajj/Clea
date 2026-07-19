@@ -21,6 +21,7 @@ CPU fallback, so the same code runs (slower) on any machine.
 | 4 | AI content generator (Ollama qwen2.5:7b, dental compliance guardrail) | ✅ working |
 | 5 | Mobile-friendly web UI (FastAPI + vanilla JS, phone over LAN) | ✅ working |
 | 5.5 | Dental reel style presets + engagement features + regression suite | ✅ working |
+| 5.6 | Music library (pick-from-list, like Reels' song picker) | ✅ working |
 | 6 | Launcher scripts (double-click setup/run); full installer packaging later | ✅ scripts |
 
 ## Setup (on the ROG laptop)
@@ -151,6 +152,34 @@ on your phone over the same wifi. One page, two tabs:
 Status chips in the header show at a glance whether NVENC, Whisper-GPU and
 Ollama are active or something fell back to CPU. Jobs and LLM calls share
 one lock, so GPU stages always run sequentially (8GB VRAM rule).
+
+## Music library — pick a track instead of uploading every time
+
+Instagram's own music catalog is licensed by Meta and can't be legally
+redistributed by a local tool, so Clea doesn't bundle real commercial audio.
+Instead it gives you a **pick-from-list picker** (like Reels' music screen)
+backed by whatever's in `music_library/tracks/`:
+
+```bash
+python -m clea music list     # generates a 4-track starter pack on first run,
+                               # then lists id / title / detected BPM / duration
+python -m clea music scan     # re-tag after adding/removing files
+```
+
+- **Starter pack**: on first run (CLI or web), four short procedurally
+  generated instrumentals are created (`upbeat pop`, `chill lofi`,
+  `cinematic build`, `high energy`) — code-synthesized, not copyrighted audio,
+  so there's nothing to clear. They're placeholders for testing the picker
+  and pacing, not for actually posting.
+- **For real posting**, drop your own royalty-free/licensed tracks (mp3/wav)
+  into `music_library/tracks/` and run `clea music scan` — it auto-detects
+  BPM and duration via librosa, same analysis the auto-cut engine already
+  uses. Good free sources: Pixabay Music, YouTube Audio Library, Incompetech
+  (CC-BY, credit Kevin MacLeod) — check each track's license terms before
+  publishing.
+- The web UI's Music step has two tabs: **Pick a track** (library, with
+  inline play preview, tempo/mood tags, one-tap select) and **Upload my
+  own** (the original file picker). Both feed the same edit pipeline.
 
 ## Reel styles — tuned for dental Instagram
 
