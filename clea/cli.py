@@ -111,6 +111,33 @@ def cmd_transcribe(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_imagine(args: argparse.Namespace) -> int:
+    from .config import load_config
+    from .imagegen import PromptRejected
+    from .imagine import ImagineOptions, generate_video_from_topic
+
+    cfg = load_config(args.config)
+    opts = ImagineOptions(
+        topic=args.topic, content_type=args.content_type,
+        reel_format=args.reel_format, style=args.style,
+        music_id=args.music_id, audio_path=args.audio,
+        duration=args.duration, show_scene_captions=not args.no_scene_captions,
+    )
+    try:
+        result = generate_video_from_topic(
+            opts, cfg, workdir=str(Path(args.output).parent / "_imagine_work"),
+            out_path=args.output,
+            progress=lambda stage, msg: print(f"[{stage:>10s}] {msg}"))
+    except (RuntimeError, ValueError, PromptRejected) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"scenes: {result.image_prompts}")
+    print(f"done: {result.edit.out_path} ({result.edit.encoder}, "
+          f"{result.edit.total_duration:.2f}s, {result.edit.n_cuts} cuts)")
+    return 0
+
+
 def cmd_generate(args: argparse.Namespace) -> int:
     import json
 
@@ -190,6 +217,24 @@ def main(argv: list[str] | None = None) -> int:
                          help="scan: re-tag new/changed files; list: show library "
                               "(generates a starter pack if empty)")
 
+    p_imagine = sub.add_parser(
+        "imagine", help="generate a full reel from a topic — no raw footage needed "
+                         "(local illustrative AI images + Ken Burns, not photoreal people)")
+    p_imagine.add_argument("--topic", required=True)
+    p_imagine.add_argument("--type", dest="content_type", default="educational-other",
+                           choices=["dental", "educational-other"])
+    p_imagine.add_argument("--format", dest="reel_format", default="informational",
+                           choices=["informational", "cool-edit", "educational",
+                                    "case-study", "myth-bust"])
+    p_imagine.add_argument("--style", default="informational",
+                           choices=["informational", "cool-edit", "educational", "case-study"])
+    p_imagine.add_argument("--audio", default=None, help="music file (or use --music-id)")
+    p_imagine.add_argument("--music-id", default=None, help="track id from 'clea music list'")
+    p_imagine.add_argument("--duration", type=float, default=None)
+    p_imagine.add_argument("--no-scene-captions", action="store_true",
+                           help="don't burn each scene's line as an on-screen note card")
+    p_imagine.add_argument("-o", "--output", default="output/imagined.mp4")
+
     args = parser.parse_args(argv)
     if args.command == "serve":
         from .server import serve
@@ -197,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     return {"doctor": cmd_doctor, "beats": cmd_beats, "edit": cmd_edit,
             "transcribe": cmd_transcribe, "generate": cmd_generate,
-            "music": cmd_music}[args.command](args)
+            "music": cmd_music, "imagine": cmd_imagine}[args.command](args)
 
 
 if __name__ == "__main__":

@@ -30,8 +30,8 @@
   .tabs { display: flex; gap: 8px; margin: 16px 0; }
   .tab {
     flex: 1; min-height: 48px; border-radius: var(--radius); border: 1px solid var(--line);
-    background: var(--panel); color: var(--dim); font-size: 16px; font-weight: 600;
-    cursor: pointer;
+    background: var(--panel); color: var(--dim); font-size: 14px; font-weight: 600;
+    cursor: pointer; padding: 0 4px;
   }
   .tab.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
@@ -99,11 +99,13 @@
       <span class="chip" id="chip-nvenc">NVENC …</span>
       <span class="chip" id="chip-whisper">Whisper …</span>
       <span class="chip" id="chip-ollama">Ollama …</span>
+      <span class="chip" id="chip-imagegen">AI images …</span>
     </div>
   </header>
 
   <div class="tabs">
     <button class="tab active" id="tab-edit">Auto-Edit</button>
+    <button class="tab" id="tab-imagine">AI Video</button>
     <button class="tab" id="tab-ideas">Content Ideas</button>
   </div>
 
@@ -162,6 +164,58 @@
     <a id="download" class="hidden"><button class="btn ghost">Download MP4</button></a>
   </section>
 
+  <!-- ===================== AI VIDEO TAB ===================== -->
+  <section id="pane-imagine" class="hidden">
+    <div class="card">
+      <h2>No footage? Generate one</h2>
+      <p class="muted" style="margin-top:0">
+        Writes a script locally, generates illustrative AI images (icons /
+        concept art — never fake patients or photoreal people), then pans
+        &amp; zooms them into a beat-synced reel. Needs
+        <code>pip install diffusers accelerate torch</code> — see README.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Topic</h2>
+      <input type="text" id="im-topic" placeholder="e.g. why flossing matters" autocomplete="off">
+      <div style="height:10px"></div>
+      <select id="im-type">
+        <option value="dental">Dental (compliance-safe)</option>
+        <option value="educational-other">Educational / other</option>
+      </select>
+      <div style="height:10px"></div>
+      <select id="im-format">
+        <option value="informational">Informational reel</option>
+        <option value="cool-edit">Cool edit (on-screen text)</option>
+        <option value="educational">Educational explainer</option>
+        <option value="myth-bust">Myth-busting</option>
+      </select>
+      <div style="height:10px"></div>
+      <select id="im-style">
+        <option value="informational">Style: informational</option>
+        <option value="cool-edit">Style: cool-edit</option>
+        <option value="educational">Style: educational</option>
+      </select>
+    </div>
+
+    <div class="card">
+      <h2>Music</h2>
+      <select id="im-music"><option value="">Loading library…</option></select>
+      <label class="row" style="margin-top:6px">Show scene text as note cards
+        <input type="checkbox" id="im-scene-captions" checked></label>
+      <label class="row" for="im-duration">Length: <b id="im-duration-label">20s</b></label>
+      <input type="range" id="im-duration" min="15" max="30" value="20" step="1">
+    </div>
+
+    <button class="btn" id="btn-imagine">Generate video</button>
+    <div class="bar" id="im-bar"><div></div></div>
+    <div class="status" id="imagine-status">Enter a topic to start.</div>
+    <video id="im-preview" controls playsinline></video>
+    <a id="im-download" class="hidden"><button class="btn ghost">Download MP4</button></a>
+    <div id="im-results"></div>
+  </section>
+
   <!-- ===================== IDEAS TAB ===================== -->
   <section id="pane-ideas" class="hidden">
     <div class="card">
@@ -198,6 +252,7 @@ async function refreshStatus() {
     setChip("chip-nvenc", s.nvenc, s.nvenc ? "NVENC ⚡" : "CPU encode");
     setChip("chip-whisper", s.cuda_whisper, s.cuda_whisper ? "Whisper GPU" : "Whisper CPU");
     setChip("chip-ollama", s.ollama, s.ollama ? `Ollama · ${s.llm_model}` : "Ollama off");
+    setChip("chip-imagegen", s.imagegen, s.imagegen ? "AI images ready" : "AI images not installed");
   } catch { /* server restarting */ }
 }
 function setChip(id, on, text) {
@@ -206,14 +261,17 @@ function setChip(id, on, text) {
 refreshStatus(); setInterval(refreshStatus, 15000);
 
 /* ---------- tabs ---------- */
-function showTab(edit) {
-  $("pane-edit").classList.toggle("hidden", !edit);
-  $("pane-ideas").classList.toggle("hidden", edit);
-  $("tab-edit").classList.toggle("active", edit);
-  $("tab-ideas").classList.toggle("active", !edit);
+function showTab(name) {
+  $("pane-edit").classList.toggle("hidden", name !== "edit");
+  $("pane-imagine").classList.toggle("hidden", name !== "imagine");
+  $("pane-ideas").classList.toggle("hidden", name !== "ideas");
+  $("tab-edit").classList.toggle("active", name === "edit");
+  $("tab-imagine").classList.toggle("active", name === "imagine");
+  $("tab-ideas").classList.toggle("active", name === "ideas");
 }
-$("tab-edit").onclick = () => showTab(true);
-$("tab-ideas").onclick = () => showTab(false);
+$("tab-edit").onclick = () => showTab("edit");
+$("tab-imagine").onclick = () => showTab("imagine");
+$("tab-ideas").onclick = () => showTab("ideas");
 
 /* ---------- file pickers ---------- */
 let clipFiles = [], audioFile = null;
@@ -301,6 +359,98 @@ async function loadMusicLibrary() {
   }
 }
 loadMusicLibrary();
+
+/* mirror the library into the AI Video tab's plain dropdown */
+async function loadImagineMusicOptions() {
+  try {
+    const tracks = await (await fetch("/api/music")).json();
+    const sel = $("im-music");
+    sel.innerHTML = tracks.length
+      ? tracks.map(t => `<option value="${t.id}">${t.title} — ${t.tempo.toFixed(0)} BPM</option>`).join("")
+      : `<option value="">No tracks — see Auto-Edit tab</option>`;
+  } catch {
+    $("im-music").innerHTML = `<option value="">Could not load library</option>`;
+  }
+}
+loadImagineMusicOptions();
+
+$("im-duration").oninput = () =>
+  $("im-duration-label").textContent = $("im-duration").value + "s";
+
+/* ---------- AI video (imagine) job ---------- */
+let imaginePolling = null;
+$("btn-imagine").onclick = async () => {
+  const topic = $("im-topic").value.trim();
+  const musicId = $("im-music").value;
+  if (!topic) { setImagineStatus("Enter a topic first.", true); return; }
+  if (!musicId) { setImagineStatus("Pick a music track first.", true); return; }
+
+  $("btn-imagine").disabled = true;
+  $("im-preview").style.display = "none";
+  $("im-download").classList.add("hidden");
+  $("im-results").innerHTML = "";
+  setImagineStatus("Queued…");
+  $("im-bar").style.display = "block";
+  try {
+    const body = new URLSearchParams({
+      topic, content_type: $("im-type").value, reel_format: $("im-format").value,
+      style: $("im-style").value, music_id: musicId,
+      duration: $("im-duration").value,
+      show_scene_captions: $("im-scene-captions").checked,
+    });
+    const resp = await fetch("/api/imagine", { method: "POST", body });
+    if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
+    const { job_id } = await resp.json();
+    imaginePolling = setInterval(() => pollImagine(job_id), 1500);
+  } catch (e) { failImagine(e.message); }
+};
+
+async function pollImagine(jobId) {
+  try {
+    const job = await (await fetch(`/api/jobs/${jobId}`)).json();
+    if (job.state === "done") {
+      clearInterval(imaginePolling);
+      $("im-bar").style.display = "none";
+      setImagineStatus(`Done — ${job.video_duration.toFixed(1)}s, ${job.n_cuts} cuts, ` +
+        `${job.encoder} (rendered in ${job.render_seconds}s)`);
+      const url = `/api/jobs/${jobId}/video`;
+      const v = $("im-preview"); v.src = url; v.style.display = "block";
+      const dl = $("im-download"); dl.href = url; dl.download = "clea_ai_video.mp4";
+      dl.classList.remove("hidden");
+      $("btn-imagine").disabled = false;
+      renderImagineResults(job);
+    } else if (job.state === "error") {
+      clearInterval(imaginePolling); failImagine(job.message);
+    } else {
+      setImagineStatus(`${job.state}… ${job.message || ""}`);
+    }
+  } catch { /* transient */ }
+}
+function setImagineStatus(msg, isErr) {
+  const el = $("imagine-status"); el.textContent = msg; el.classList.toggle("err", !!isErr);
+}
+function failImagine(msg) {
+  $("im-bar").style.display = "none";
+  setImagineStatus("Failed: " + msg, true);
+  $("btn-imagine").disabled = false;
+}
+function renderImagineResults(job) {
+  const out = $("im-results");
+  const card = document.createElement("div");
+  card.className = "card";
+  if (job.image_prompts && job.image_prompts.length)
+    card.appendChild(block("Scenes generated", job.image_prompts.join("\n")));
+  if (job.caption) card.appendChild(block("Caption", job.caption));
+  if (job.hashtags && job.hashtags.length)
+    card.appendChild(block("Hashtags", job.hashtags.join(" ")));
+  if (job.compliance_warnings && job.compliance_warnings.length) {
+    const warn = document.createElement("p");
+    warn.className = "muted"; warn.style.color = "var(--err)";
+    warn.textContent = "⚠ Review before posting — flagged words: " + job.compliance_warnings.join(", ");
+    card.appendChild(warn);
+  }
+  out.appendChild(card);
+}
 
 $("opt-duration").oninput = () =>
   $("duration-label").textContent = $("opt-duration").value + "s";

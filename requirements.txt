@@ -16,3 +16,12 @@ faster-whisper>=1.0          # CUDA build of ctranslate2 is pulled in automatica
 fastapi
 uvicorn[standard]
 python-multipart
+
+# ---- Phase 7: AI image generation for "no raw footage" reels (optional) ----
+# CPU-only fallback (slow, works everywhere):
+#   pip install diffusers accelerate torch --index-url https://download.pytorch.org/whl/cpu
+# CUDA (RTX 4070 Laptop — fast, recommended):
+#   pip install diffusers accelerate
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+# diffusers
+# accelerate

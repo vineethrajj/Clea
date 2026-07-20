@@ -26,6 +26,8 @@ from pydantic import BaseModel
 from .config import Config, load_config
 from .content import CONTENT_TYPES, generate_content
 from .hardware import HardwareReport, detect_ollama, probe
+from .imagegen import PromptRejected
+from .imagine import ImagineOptions, generate_video_from_topic
 from .llm import LLMError, ollama_available
 from .music_library import ensure_starter_pack, scan_library, track_path
 from .pipeline import EditOptions, collect_clips, run_edit
@@ -83,6 +85,15 @@ def index() -> str:
     return (WEB_DIR / "index.html").read_text(encoding="utf-8")
 
 
+def _imagegen_available() -> bool:
+    try:
+        import diffusers  # noqa: F401
+        import torch  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 @app.get("/api/status")
 def status() -> dict:
     assert _cfg is not None and _hw is not None
@@ -98,6 +109,7 @@ def status() -> dict:
         "llm_model": _cfg.llm["model"],
         "encoder": _hw.encoder,
         "busy": GPU_LOCK.locked(),
+        "imagegen": _imagegen_available(),
     }
 
 
@@ -124,6 +136,75 @@ def _run_job(job_id: str) -> None:
                    render_seconds=round(result.render_seconds, 1))
     except Exception as exc:
         job.update(state="error", message=str(exc)[-2000:])
+
+
+def _run_imagine_job(job_id: str) -> None:
+    job = JOBS[job_id]
+    try:
+        job["state"] = "waiting for GPU"
+        with GPU_LOCK:  # LLM + image-gen + render — one GPU workload at a time
+            def progress(stage: str, msg: str) -> None:
+                job["state"] = stage
+                job["message"] = msg
+
+            assert _cfg is not None
+            result = generate_video_from_topic(
+                job["options"], _cfg, workdir=job["workdir"], out_path=job["out"],
+                progress=progress, hw=_hw,
+            )
+        job.update(state="done", message="ready",
+                   encoder=result.edit.encoder,
+                   video_duration=result.edit.total_duration,
+                   n_cuts=result.edit.n_cuts,
+                   image_prompts=result.image_prompts,
+                   caption=result.pack.caption,
+                   hashtags=result.pack.hashtags,
+                   compliance_warnings=result.pack.compliance_warnings,
+                   render_seconds=round(result.edit.render_seconds, 1))
+    except PromptRejected as exc:
+        job.update(state="error", message=str(exc))
+    except Exception as exc:
+        job.update(state="error", message=str(exc)[-2000:])
+
+
+@app.post("/api/imagine")
+async def create_imagine(
+    topic: str = Form(...),
+    content_type: str = Form("educational-other"),
+    reel_format: str = Form("informational"),
+    style: str = Form("informational"),
+    music_id: str = Form(""),
+    duration: float = Form(20.0),
+    show_scene_captions: bool = Form(True),
+) -> dict:
+    assert _cfg is not None
+    if not _imagegen_available():
+        raise HTTPException(
+            503, "AI image generation isn't installed. Run: "
+                 "pip install diffusers accelerate torch "
+                 "(see README for the CUDA vs CPU wheel).")
+    if style not in (_cfg.get("styles") or {}):
+        raise HTTPException(400, f"unknown style '{style}'")
+    if content_type not in CONTENT_TYPES:
+        raise HTTPException(400, f"content_type must be one of {CONTENT_TYPES}")
+    if not music_id:
+        raise HTTPException(400, "pick a music_id from the library")
+    if not track_path(_cfg, music_id):
+        raise HTTPException(404, "unknown music_id")
+
+    job_id = uuid.uuid4().hex[:12]
+    ws = _workspace() / job_id
+    ws.mkdir(parents=True)
+    JOBS[job_id] = {
+        "id": job_id, "state": "queued", "message": "queued", "created": time.time(),
+        "workdir": str(ws), "out": str(ws / "reel.mp4"),
+        "options": ImagineOptions(
+            topic=topic, content_type=content_type, reel_format=reel_format,
+            style=style, music_id=music_id, duration=duration,
+            show_scene_captions=show_scene_captions),
+    }
+    threading.Thread(target=_run_imagine_job, args=(job_id,), daemon=True).start()
+    return {"job_id": job_id}
 
 
 @app.post("/api/edit")
@@ -193,7 +274,8 @@ def job_status(job_id: str) -> dict:
         raise HTTPException(404, "unknown job")
     public = {k: v for k, v in job.items()
               if k in ("id", "state", "message", "encoder", "video_duration",
-                       "n_cuts", "n_caption_words", "notes", "render_seconds")}
+                       "n_cuts", "n_caption_words", "notes", "render_seconds",
+                       "image_prompts", "caption", "hashtags", "compliance_warnings")}
     return public
 
 

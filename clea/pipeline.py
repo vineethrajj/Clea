@@ -33,6 +33,10 @@ class EditOptions:
     hook_text: str | None = None     # big opening title burned over the reel
     seed: int = 42
     whisper_model: str | None = None
+    force_ordering: str | None = None    # bypass the style's ordering (e.g. "chronological")
+    scene_captions: dict[str, str] | None = None  # clip path -> on-screen note card text
+                                                    # (used when there's no real speech to
+                                                    # transcribe, e.g. AI-generated scenes)
 
 
 @dataclass
@@ -91,6 +95,29 @@ def collect_clips(clips_dir: str | Path) -> list[str]:
     return sorted(str(f) for f in p.iterdir() if f.suffix.lower() in VIDEO_EXTS)
 
 
+def _notes_from_scene_captions(plan: EditPlan, mapping: dict[str, str]) -> list:
+    """One Note per contiguous run of a clip on the timeline, showing the
+    caption supplied for that clip (used for AI-generated scenes, which have
+    no real speech to transcribe). Relies on chronological-style assembly
+    where a clip's segments are contiguous, not scattered by hook-first
+    reordering — callers should set force_ordering='chronological'."""
+    from .notes import Note
+
+    notes: list[Note] = []
+    tl_pos = 0.0
+    current_clip: str | None = None
+    seg_start = 0.0
+    for e in plan.entries:
+        if e.clip != current_clip:
+            if current_clip is not None and current_clip in mapping:
+                notes.append(Note(mapping[current_clip], seg_start, tl_pos))
+            current_clip, seg_start = e.clip, tl_pos
+        tl_pos += e.timeline_duration
+    if current_clip is not None and current_clip in mapping:
+        notes.append(Note(mapping[current_clip], seg_start, tl_pos))
+    return notes
+
+
 def run_edit(
     clip_paths: list[str],
     audio_path: str,
@@ -104,6 +131,8 @@ def run_edit(
         raise ValueError("no video clips provided")
 
     style = resolve_style(cfg, opts)
+    if opts.force_ordering:
+        style.ordering = opts.force_ordering
 
     if hw is None:
         progress("probe", "checking hardware")
@@ -149,7 +178,7 @@ def run_edit(
     ass_path = None
     n_caption_words = 0
     note_texts: list[str] = []
-    if words_by_clip or opts.hook_text:
+    if words_by_clip or opts.hook_text or opts.scene_captions:
         from .captions import remap_words, write_ass
 
         timeline_words = []
@@ -164,6 +193,9 @@ def run_edit(
             notes = build_notes(words_by_clip, plan, cfg,
                                 max_notes=cfg.notes["max_notes"],
                                 use_llm=cfg.notes["use_llm"])
+            note_texts = [n.text for n in notes]
+        elif opts.scene_captions:
+            notes = _notes_from_scene_captions(plan, opts.scene_captions)
             note_texts = [n.text for n in notes]
 
         if timeline_words or notes or opts.hook_text:

@@ -22,6 +22,7 @@ CPU fallback, so the same code runs (slower) on any machine.
 | 5 | Mobile-friendly web UI (FastAPI + vanilla JS, phone over LAN) | ✅ working |
 | 5.5 | Dental reel style presets + engagement features + regression suite | ✅ working |
 | 5.6 | Music library (pick-from-list, like Reels' song picker) | ✅ working |
+| 7 | AI image generation + Ken Burns — full reels with no raw footage | ✅ working (optional install) |
 | 6 | Launcher scripts (double-click setup/run); full installer packaging later | ✅ scripts |
 
 ## Setup (on the ROG laptop)
@@ -213,6 +214,55 @@ Case-study packs are written anonymised ("in this case", "results vary");
 cool-edit packs come as short on-screen text lines (`overlay_texts`) instead
 of narration. The dental compliance guardrail applies to every format.
 
+## No raw footage? Generate a reel from a topic (Phase 7)
+
+For when you don't have clips to edit — writes a script locally, generates
+a handful of **illustrative** AI images, pans/zooms them into clips (Ken
+Burns effect), then runs the exact same beat-sync/style/caption pipeline as
+real footage.
+
+**Deliberately not photorealistic, and never depicts people.** An 8GB laptop
+GPU can't produce convincing photoreal humans locally, and for a real dental
+clinic, AI-fabricated "patients" or "procedures" is a compliance and trust
+problem regardless of image quality. So this only generates abstract/icon/
+concept-art visuals — every prompt is checked against a realism/person
+blocklist (rejects things like "photo of a patient", "portrait", "before/
+after of a real person") and wrapped in a fixed illustrative style
+(`clea/imagegen.py: STYLE_SUFFIX`) before it ever reaches the model.
+
+```bash
+# one-time install (not in requirements.txt by default — heavy deps):
+pip install diffusers accelerate
+pip install torch --index-url https://download.pytorch.org/whl/cu121   # RTX 4070: CUDA build
+# or, CPU-only fallback (works everywhere, much slower):
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+python -m clea imagine --topic "why flossing matters" --type dental \
+    --format informational --style informational --music-id <id from 'clea music list'>
+```
+
+- Default model is `stabilityai/sdxl-turbo` (config `imagegen.model`) — fits
+  8GB VRAM, 1-4 step inference, no CFG pass needed, fast on your RTX 4070.
+  First run downloads the weights from Hugging Face (one-time, like `ollama
+  pull`); after that it's fully local.
+- The LLM content pack drives everything: its hook becomes the opening
+  title, its script/overlay lines become the image prompts and the on-screen
+  note-card text for each scene (scene order is locked chronological so the
+  captions always match what's on screen — no hook-first reshuffling here).
+  The dental compliance guardrail applies to the script exactly as in Phase 4.
+  Cool-edit's `--format` naturally gives short on-screen-text scenes; other
+  formats use the hook/problem/solution/cta as four scenes.
+- Same style presets apply to pacing/transitions (`--style cool-edit` for a
+  fast montage of generated art, etc.) — `keep-voice`/whisper captions are
+  forced off since there's no real speech to transcribe.
+- Web UI: **AI Video** tab — topic, dental/educational type, reel format,
+  style, a track from the music library, length slider, generate, preview,
+  download. The header's "AI images ready/not installed" chip tells you at
+  a glance whether the optional deps are present.
+- GPU stages (script LLM call → image generation → NVENC render) run
+  strictly sequentially, same rule as everywhere else in this app — the
+  pipeline never has two GPU workloads active at once.
+
 ## Tests
 
 ```bash
@@ -220,13 +270,24 @@ pip install pytest
 python -m pytest tests/ -q
 ```
 
-45 tests: beat-grid/slot invariants (cuts land on beats, pacing bounds),
+66 tests: beat-grid/slot invariants (cuts land on beats, pacing bounds),
 EDL properties (hook-first ordering, chronological mode, no source reuse,
 crossfade timeline preservation), ASS caption/note/hook generation, ffmpeg
 command construction (NVENC vs CPU args, xfade offsets, keep-voice mix,
-punch-in zoompan), compliance checker, style resolution, and end-to-end
-renders of every style preset verified with ffprobe. Run them after any
-change to the edit engine.
+punch-in zoompan), compliance checker, style resolution, music library
+scan/tag/persistence, image-prompt safety guardrail, Ken Burns clip
+rendering (verified with ffprobe), the imagine pipeline end-to-end with a
+mocked image generator (so it runs without torch/diffusers or a GPU), and
+end-to-end renders of every style preset. Run them after any change to the
+edit engine.
+
+`tests/test_imagegen_guardrail.py` and `tests/test_imagine.py` don't need
+diffusers/torch installed — the real diffusers pipeline was validated
+separately against small real models (`segmind/tiny-sd`) during development
+to confirm the API contract in `clea/imagegen.py` is correct; that isn't
+part of the regression suite since pulling model weights on every test run
+would be slow and heavy. If you change `imagegen.py`'s pipeline-call code,
+sanity-check it against a real model by hand once.
 
 ## Quick start scripts
 
